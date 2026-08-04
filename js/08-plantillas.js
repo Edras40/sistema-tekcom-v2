@@ -1121,24 +1121,47 @@ function plTiempoValidacionMovistar(caso){
 
 function plCalcularSlaActivo(p){
   const avances = p.avances || [];
-  // El SLA se ancla al PRIMER avance de la bitácora, que es el momento real en que el caso
-  // entró a "En Proceso". Para un caso creado directo en proceso ese avance ya trae la
-  // fecha/hora de escalonamiento, así que el comportamiento no cambia. Para un caso que
-  // estuvo en Pendiente, el avance trae la hora de la promoción y el reloj arranca ahí.
+  // El SLA se ancla al Escalonamiento real (Solicitud de Ticket), el mismo dato que usa
+  // "Casos Atendidos" para su columna Lapso/SLA. Antes se anclaba al primer avance de la
+  // bitácora (el momento en que el operador lo capturó en el sistema), lo cual podía quedar
+  // minutos u horas después del escalonamiento real y hacía que Plantillas y Casos Atendidos
+  // midieran el mismo caso desde dos puntos de partida distintos, dando números diferentes.
   let inicio = null;
-  if(avances.length > 0){
+  if(p.ticket_fecha){
+    inicio = new Date(`${p.ticket_fecha}T${plHHMM(p.ticket_hora)}:00`);
+  }
+  if((!inicio || isNaN(inicio.getTime())) && avances.length > 0){
+    // Respaldo si el registro no trae Escalonamiento: se usa el primer avance de la bitácora.
     const primero = avances[0];
     inicio = new Date(`${primero.fecha}T${plHHMM(primero.hora)}:00`);
   }
-  if((!inicio || isNaN(inicio.getTime())) && p.ticket_fecha){
-    // Respaldo para registros viejos sin avances válidos.
-    inicio = new Date(`${p.ticket_fecha}T${plHHMM(p.ticket_hora)}:00`);
-  }
   if(!inicio || isNaN(inicio.getTime())) return null;
+
+  // Límite superior real del caso: el instante en que se finalizó, o "ahora" si sigue abierto.
+  // Se calcula ANTES del recorrido para poder usarlo como tope al reanudar un caso Programado:
+  // la hora agendada nunca debe proyectar la reanudación más allá de un punto que ya pasó
+  // (caso finalizado antes de la hora agendada) ni más allá del presente.
+  const ultimoAvanceRef = avances[avances.length - 1];
+  const estaFinalizadoRef = ultimoAvanceRef && ultimoAvanceRef.estado === 'finalizado';
+  let limiteSuperior = Date.now();
+  if(estaFinalizadoRef){
+    const finTsRef = new Date(`${ultimoAvanceRef.fecha}T${plHHMM(ultimoAvanceRef.hora)}:00`).getTime();
+    if(!isNaN(finTsRef)) limiteSuperior = finTsRef;
+  }
+
   let acumuladoMs = 0;
   let cursor = inicio.getTime();
   let pausadoDesde = null;
   let avancePausa = null; // el avance que provocó la pausa vigente
+
+  // Si el PRIMER avance de la bitácora ya nace Pausado/Programado, el caso nunca estuvo
+  // realmente "activo" entre el Escalonamiento real y ese primer avance (solo se registró
+  // directamente como programado/pausado apenas se abrió). Sin este ajuste, ese tramo se
+  // contaba de más como si hubiera sido tiempo trabajado.
+  if(avances.length > 0 && (avances[0].estado === 'pausado' || avances[0].estado === 'programado')){
+    const tPrimero = new Date(`${avances[0].fecha}T${plHHMM(avances[0].hora)}:00`).getTime();
+    if(!isNaN(tPrimero)) cursor = tPrimero;
+  }
 
   for(const av of avances){
     const t = new Date(`${av.fecha}T${plHHMM(av.hora)}:00`).getTime();
@@ -1149,11 +1172,19 @@ function plCalcularSlaActivo(p){
       avancePausa = av;
     } else if(av.estado === 'despausado' && pausadoDesde !== null){
       // Si la pausa fue por un caso PROGRAMADO, el SLA no se reanuda cuando la cuadrilla
-      // retoma (suele salir antes para llegar a tiempo), sino a la hora agendada.
+      // retoma (suele salir antes para llegar a tiempo), sino a la hora agendada... salvo que
+      // el caso ya se haya finalizado (o el presente) antes de llegar a esa hora agendada:
+      // en ese caso se usa el momento real de "Retomado", para no proyectar la reanudación
+      // a un instante que nunca ocurrió y terminar restando de más (SLA en 0:00 indebido).
       let reanuda = t;
       if(avancePausa && avancePausa.estado === 'programado' && avancePausa.programado_fecha && avancePausa.programado_hora){
         const progTs = new Date(`${avancePausa.programado_fecha}T${plHHMM(avancePausa.programado_hora)}:00`).getTime();
-        if(!isNaN(progTs)) reanuda = progTs;
+        // Solo se usa la hora agendada si esa hora ya llegó a ocurrir dentro de la vida real
+        // del caso (antes de que se finalizara, o antes de "ahora" si sigue abierto). Si el
+        // caso se resolvió antes de que la hora agendada llegara, esa hora nunca "pasó" de
+        // verdad, así que se respeta el momento real de "Retomado" para no perder el tiempo
+        // que sí se trabajó activamente.
+        if(!isNaN(progTs) && progTs <= limiteSuperior) reanuda = progTs;
       }
       cursor = reanuda;
       pausadoDesde = null;
@@ -1162,8 +1193,8 @@ function plCalcularSlaActivo(p){
   }
 
   const pausadoAhora = pausadoDesde !== null;
-  const ultimoAvance = avances[avances.length - 1];
-  const estaFinalizado = ultimoAvance && ultimoAvance.estado === 'finalizado';
+  const ultimoAvance = ultimoAvanceRef;
+  const estaFinalizado = estaFinalizadoRef;
 
   if(estaFinalizado){
     // Congelado: se detiene en el momento exacto en que se finalizó, no en "ahora".
@@ -1175,12 +1206,19 @@ function plCalcularSlaActivo(p){
   // `baseMs` es el tiempo ya consolidado y `desdeMs` el instante desde el que sigue corriendo.
   // Se exponen para que el cronómetro en vivo pueda respetar un ancla en el FUTURO (caso
   // programado cuya cita todavía no llega): ahí debe quedarse en 00:00:00, no arrancar.
+  // `lapsoMs` es el tiempo total transcurrido (reloj corrido, sin restar pausas) e
+  // `intervaloMs` el total de pausas restadas — se exponen para que "Casos Atendidos" calcule
+  // Lapso/Intervalo/SLA con este MISMO resultado en vez de una fórmula aparte que podía
+  // dar un número distinto para el mismo caso.
+  const lapsoMs = Math.max(0, limiteSuperior - inicio.getTime());
   return {
     ms: acumuladoMs,
     pausadoAhora,
     finalizado: !!estaFinalizado,
     baseMs: (estaFinalizado || pausadoAhora) ? acumuladoMs : acumuladoMs - Math.max(0, Date.now() - cursor),
-    desdeMs: cursor
+    desdeMs: cursor,
+    lapsoMs,
+    intervaloMs: Math.max(0, lapsoMs - acumuladoMs)
   };
 }
 
@@ -1576,6 +1614,18 @@ function plNombreCortoProyecto(modulo){
   return { casos:'Movistar', hyve:'Hyve', cable:'Cable Color' }[modulo] || 'Movistar';
 }
 
+// Busca la fecha/hora que realmente quedó agendada para un caso "Programado": siempre
+// viene guardada en el último avance de la bitácora (sea que el caso ya tuviera plantilla,
+// o que se haya creado directo desde Estatus como borrador programado).
+function plFechaHoraProgramadaTexto(p){
+  const avances = p.avances || [];
+  const ultimo = avances[avances.length - 1];
+  if(!ultimo || ultimo.estado !== 'programado' || !ultimo.programado_fecha) return '';
+  const fechaTxt = plFormatearFechaDDMMYYYY(ultimo.programado_fecha);
+  const horaTxt = plHHMM(ultimo.programado_hora || '');
+  return horaTxt ? `${fechaTxt} ${horaTxt}` : fechaTxt;
+}
+
 function plChipEstatusValor(valor, modulo){
   const info = PL_ESTATUS_OPCIONES[valor];
   if(!info) return '<span class="badge">—</span>';
@@ -1610,7 +1660,7 @@ function plCuadrillaDePlantilla(p){
   return (persona && persona.cuadrilla) || '';
 }
 function plChipEstado(estadoCalc){
-  if(estadoCalc === 'finalizado') return '<span class="badge" style="background:#DCFCE7;color:#16A34A;">● Finalizado</span>';
+  if(estadoCalc === 'finalizado') return '<span class="badge" style="background:#DBEAFE;color:#1D4ED8;">● Finalizado</span>';
   if(estadoCalc === 'escalado') return '<span class="badge" style="background:#FEE2E2;color:#DC2626;">● Escalado</span>';
   if(estadoCalc === 'pausado') return '<span class="badge" style="background:#FEF3C7;color:#B45309;">● Pausado</span>';
   return '<span class="badge" style="background:#FEF3C7;color:#92400E;">● En Proceso</span>';
@@ -1705,7 +1755,6 @@ function plRenderListaFiltrada(){
           const avances = p.avances || [];
           const ultimo = avances[avances.length - 1];
           const descLarga = (ultimo && ultimo.descripcion) ? ultimo.descripcion : '';
-          const ultimoTxt = descLarga ? escapeHtml(descLarga.slice(0,60)) + (descLarga.length > 60 ? '...' : '') : '—';
           const tecnicoTxt = p.team_lider ? escapeHtml(p.team_lider) : '—';
           const desatendido = plEstaDesatendido(p);
           const alertaHtml = desatendido
@@ -1726,14 +1775,17 @@ function plRenderListaFiltrada(){
             : '';
           return `
             <tr>
-              <td style="font-weight:600;">${escapeHtml(p.no_ticket || '—')}</td>
-              <td>${escapeHtml(plEtiquetaProyecto(p.modulo))}</td>
-              <td>${escapeHtml(p.cliente_sitio || '—')}</td>
-              <td style="max-width:260px; font-size:12.5px; color:var(--text-dim); white-space:normal; overflow-wrap:break-word;">${ultimoTxt}</td>
-              <td>${(estadoCalc === 'pausado' && ultimo && ultimo.estado === 'programado') ? '<span class="badge" style="background:#DCFCE7;color:#166534;">● Programado</span>' : plChipEstado(estadoCalc)}${alertaHtml}${enviadaHtml}${cronometroHtml}${slaHtml}</td>
-              <td style="font-size:12.5px;">${tecnicoTxt}</td>
+              <td style="font-weight:600; font-size:10.5px;">${escapeHtml(p.no_ticket || '—')}</td>
+              <td style="font-size:10.5px;">${escapeHtml(plEtiquetaProyecto(p.modulo))}</td>
+              <td style="font-size:10.5px;">${escapeHtml(p.cliente_sitio || '—')}</td>
+              <td style="max-width:340px; font-size:11.5px; color:var(--text-dim); white-space:normal; overflow-wrap:break-word;">${descLarga ? escapeHtml(descLarga) : '—'}</td>
+              <td style="font-size:10.5px;">${(estadoCalc === 'pausado' && ultimo && ultimo.estado === 'programado') ? '<span class="badge" style="background:#DCFCE7;color:#166534;">● Programado</span>' : plChipEstado(estadoCalc)}${alertaHtml}${enviadaHtml}${cronometroHtml}${slaHtml}</td>
+              <td style="font-size:10.5px;">${tecnicoTxt}</td>
               <td style="text-align:right;">
                 <button class="btn btn-ghost" data-ver-plantilla="${p.id}" style="padding:6px 12px; font-size:12.5px;">Ver / Continuar</button>
+                <button type="button" class="icon-btn danger" data-eliminar-plantilla="${p.id}" title="Eliminar" style="margin-left:4px; color:var(--danger);">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path></svg>
+                </button>
               </td>
             </tr>
           `;
@@ -1744,6 +1796,29 @@ function plRenderListaFiltrada(){
   wrap.querySelectorAll('[data-ver-plantilla]').forEach(btn => {
     btn.addEventListener('click', () => plAbrirDetalle(Number(btn.dataset.verPlantilla)));
   });
+  wrap.querySelectorAll('[data-eliminar-plantilla]').forEach(btn => {
+    btn.addEventListener('click', () => plEliminarPlantilla(Number(btn.dataset.eliminarPlantilla)));
+  });
+}
+
+// Elimina por completo una plantilla (con toda su bitácora de avances) tanto desde la
+// lista de Plantillas como desde el tablero de Estatus. Es una acción irreversible: no
+// borra el caso ya sincronizado en Casos Movistar/Hyve/Cable (si existe), solo la
+// plantilla/bitácora de seguimiento.
+async function plEliminarPlantilla(id){
+  const p = plListaCache.find(x => x.id === id);
+  const nombre = (p && p.cliente_sitio) || (p && p.no_ticket) || 'este caso';
+  if(!confirm(`¿Eliminar "${nombre}" de forma permanente? Esta acción no se puede deshacer.`)) return;
+  try{
+    const res = await fetch(`${PLANTILLA_REST_URL}?id=eq.${id}`, { method:'DELETE', headers: sbHeaders });
+    if(!res.ok){ const t = await res.text(); throw new Error(t || 'Error al eliminar'); }
+    plListaCache = plListaCache.filter(x => x.id !== id);
+    plRefrescarVistaListaActual();
+    showToast('Caso eliminado');
+  }catch(err){
+    console.error(err);
+    showToast('No se pudo eliminar: ' + err.message, 'error');
+  }
 }
 
 document.getElementById('plFiltroProyecto').addEventListener('change', plRenderListaFiltrada);
@@ -1784,7 +1859,7 @@ function plEtiquetaEstadoAvance(estado){
     programado: { texto:'Programado',  bg:'#DCFCE7', color:'#166534' },
     despausado: { texto:'Retomado',  bg:'#E0F2FE', color:'#0369A1' },
     escalado:   { texto:'Escalado',    bg:'#FEE2E2', color:'#DC2626' },
-    finalizado: { texto:'Finalizado',  bg:'#DCFCE7', color:'#16A34A' }
+    finalizado: { texto:'Finalizado',  bg:'#DBEAFE', color:'#1D4ED8' }
   };
   const e = mapa[estado] || mapa.normal;
   return `<span class="badge" style="background:${e.bg};color:${e.color};">${e.texto}</span>`;
@@ -2592,16 +2667,15 @@ async function plCrearCasoMovistarDesdePlantilla(p, materiales){
       ? plHHMMaISO(p.validacion_hyve_fin_fecha, p.validacion_hyve_fin_hora)
       : null;
 
-    // Lapso: tiempo total desde que se escaló hasta que se terminó, SIN restar pausas.
-    let lapsoMinutos = null;
-    if(escalonamientoIso && resolucionIso){
-      lapsoMinutos = (new Date(resolucionIso).getTime() - new Date(escalonamientoIso).getTime()) / 60000;
-      if(lapsoMinutos < 0) lapsoMinutos = null;
-    }
-    // Intervalo: suma de todas las pausas (Pausado/Programado -> Retomado) de la plantilla.
-    const intervaloMinutos = plCalcularIntervaloPausasMinutos(avances);
-    // SLA: Lapso - Intervalo.
-    const slaMinutos = (lapsoMinutos !== null) ? Math.max(0, lapsoMinutos - intervaloMinutos) : null;
+    // Lapso / Intervalo / SLA: se calculan con la MISMA función que usa el cronómetro en vivo
+    // de Plantillas (plCalcularSlaActivo), para que "Casos Atendidos" muestre siempre el mismo
+    // número que Plantillas para el mismo caso. Antes esto se calculaba aparte con Lapso =
+    // Resolución - Escalonamiento e Intervalo sumando pausas "a secas", sin la regla de la
+    // hora agendada, y podía dar un SLA distinto al que ya se veía en Plantillas.
+    const slaInfo = plCalcularSlaActivo(p);
+    const lapsoMinutos = slaInfo ? slaInfo.lapsoMs / 60000 : null;
+    const intervaloMinutos = slaInfo ? slaInfo.intervaloMs / 60000 : 0;
+    const slaMinutos = slaInfo ? slaInfo.ms / 60000 : null;
 
     // Semana / Año / Mes / Día: se extraen automáticamente de la fecha de la plantilla (escalonamiento).
     const semana = fechaEscalonamiento ? getSemanaISO(fechaEscalonamiento) : null;
@@ -2616,7 +2690,10 @@ async function plCrearCasoMovistarDesdePlantilla(p, materiales){
       casos: p.cliente_sitio || null,
       folio: p.no_ticket || null,
       nombre_del_tecnico: (p.team_lider && p.team_lider !== 'Pendiente Asignar Personal') ? p.team_lider : null,
-      status: 'En Proceso',
+      // Antes quedaba fijo en 'En Proceso' aunque la plantilla ya estuviera Finalizada o
+      // Pausada: por eso el caso en Casos Movistar se veía "En Proceso" para siempre, aunque
+      // en Plantillas ya apareciera como Finalizado. Ahora se refleja el estado real.
+      status: ({ finalizado:'Finalizada', pausado:'Pausado', escalado:'En Proceso', abierto:'Pendiente' })[plEstadoDePlantilla(p)] || 'En Proceso',
       zona: p.estatus_zona || null,
       semana, anos, mes, dia,
       escalonamiento: escalonamientoIso,
@@ -2731,13 +2808,13 @@ function plCalcularTiemposYFechaAuto(p){
   const escalonamientoIso = plFechaHoraAIso(p.ticket_fecha, p.ticket_hora);
   const resolucionIso = ultimoAvance ? plFechaHoraAIso(ultimoAvance.fecha, ultimoAvance.hora) : null;
 
-  let lapsoMinutos = null;
-  if(escalonamientoIso && resolucionIso){
-    lapsoMinutos = (new Date(resolucionIso).getTime() - new Date(escalonamientoIso).getTime()) / 60000;
-    if(lapsoMinutos < 0) lapsoMinutos = null;
-  }
-  const intervaloMinutos = plCalcularIntervaloPausasMinutos(avances);
-  const slaMinutos = (lapsoMinutos !== null) ? Math.max(0, lapsoMinutos - intervaloMinutos) : null;
+  // Lapso / Intervalo / SLA: mismo motor que el cronómetro en vivo de Plantillas
+  // (plCalcularSlaActivo), para que Hyve/Cable/UDP no muestren un SLA distinto al que ya
+  // se ve en Plantillas para el mismo caso.
+  const slaInfo = plCalcularSlaActivo(p);
+  const lapsoMinutos = slaInfo ? slaInfo.lapsoMs / 60000 : null;
+  const intervaloMinutos = slaInfo ? slaInfo.intervaloMs / 60000 : 0;
+  const slaMinutos = slaInfo ? slaInfo.ms / 60000 : null;
 
   return {
     ultimoAvance,
@@ -3593,10 +3670,14 @@ function plActualizarCampoActualizacionSegunEstatus(esCambioManual){
   avisoEl.style.display = 'none';
 
   if(valor === 'pendiente_tlf'){
-    // Pendiente Movistar: se elige de una lista fija de motivos, no se escribe libre
-    inputEl.style.display = 'none';
+    // Pendiente Movistar: se elige de una lista fija de motivos, o "Otro" para escribir un
+    // avance libre cuando ninguno de los motivos predefinidos aplica.
     listaEl.style.display = '';
     if(!listaEl.value) listaEl.value = listaEl.options[0].value;
+    const esOtro = listaEl.value === '__otro__';
+    inputEl.style.display = esOtro ? '' : 'none';
+    inputEl.placeholder = 'Escribe el avance...';
+    if(!esOtro) inputEl.value = '';
   } else {
     inputEl.style.display = '';
     listaEl.style.display = 'none';
@@ -3615,6 +3696,12 @@ function plActualizarCampoActualizacionSegunEstatus(esCambioManual){
   }
 }
 document.getElementById('plEstatusValor').addEventListener('change', () => plActualizarCampoActualizacionSegunEstatus(true));
+document.getElementById('plEstatusActualizacionLista').addEventListener('change', () => {
+  const inputEl = document.getElementById('plEstatusActualizacion');
+  const esOtro = document.getElementById('plEstatusActualizacionLista').value === '__otro__';
+  inputEl.style.display = esOtro ? '' : 'none';
+  if(!esOtro) inputEl.value = '';
+});
 
 function plAbrirEstatusModal(p){
   const esExistente = !!p;
@@ -3663,7 +3750,14 @@ function plAbrirEstatusModal(p){
   const estaPausado = esExistente && (p.avances || []).length > 0 && plEstadoDePlantilla(p) === 'pausado';
   document.getElementById('plEstatusAvisoPausado').style.display = estaPausado ? '' : 'none';
 
-  document.getElementById('plEstatusActualizacionLista').value = '';
+  const listaEl = document.getElementById('plEstatusActualizacionLista');
+  const textoActualizacionExistente = esExistente ? (p.estatus_actualizacion || '') : '';
+  if(textoActualizacionExistente){
+    const opciones = Array.from(listaEl.options).map(o => o.value);
+    listaEl.value = opciones.includes(textoActualizacionExistente) ? textoActualizacionExistente : '__otro__';
+  } else {
+    listaEl.value = '';
+  }
   plActualizarCampoActualizacionSegunEstatus();
 
   document.getElementById('plEstatusModalOverlay').classList.add('active');
@@ -3724,8 +3818,9 @@ document.getElementById('plEstatusGuardarBtn').addEventListener('click', async (
   const tieneAvancesReales = pExistente && (pExistente.avances || []).length > 0;
   const estaPausadoOProgramado = tieneAvancesReales && plEstadoDePlantilla(pExistente) === 'pausado';
   const yaEnProcesoActivo = valor === 'en_proceso' && tieneAvancesReales && !estaPausadoOProgramado;
+  const listaValor = document.getElementById('plEstatusActualizacionLista').value;
   const actualizacion = yaEnProcesoActivo ? '' : (valor === 'pendiente_tlf'
-    ? document.getElementById('plEstatusActualizacionLista').value
+    ? (listaValor === '__otro__' ? document.getElementById('plEstatusActualizacion').value : listaValor)
     : document.getElementById('plEstatusActualizacion').value
   ).trim();
 
@@ -4091,7 +4186,18 @@ function plRenderEstatusLista(){
       </div>
     </div>
     ${plFiltrosBuscarEstatusHtml()}
-    <table>
+    <table style="table-layout:fixed;">
+      <colgroup>
+        <col style="width:16%;">
+        <col style="width:9%;">
+        <col style="width:9%;">
+        <col style="width:6%;">
+        <col style="width:6%;">
+        <col style="width:11%;">
+        <col style="width:9%;">
+        <col style="width:24%;">
+        <col style="width:10%;">
+      </colgroup>
       <thead>
         <tr>
           <th>Nombre del Caso</th>
@@ -4126,17 +4232,30 @@ function plRenderEstatusLista(){
         : '';
       html += `
         <tr>
-          <td style="font-weight:600;">${escapeHtml(p.cliente_sitio || '—')}</td>
-          <td class="mono">${escapeHtml(plEstatusFechaHoraTexto(p))}</td>
-          <td class="mono">${escapeHtml(p.no_ticket || '—')}</td>
-          <td>${escapeHtml(categoria)}</td>
-          <td>${escapeHtml(p.estatus_zona || '—')}</td>
-          <td>${escapeHtml(p.team_lider || 'Pendiente Asignar Personal')}</td>
-          <td>${plChipEstatusValor(plEstatusEfectivo(p), p.modulo)}${cronometroHtml}${slaHtmlEstatus}</td>
-          <td style="max-width:260px; font-size:12.5px; color:var(--text-dim); white-space:normal; overflow-wrap:break-word;">${escapeHtml(p.estatus_actualizacion || '—')}</td>
+          <td style="font-size:10.5px; white-space:normal; overflow-wrap:break-word;">${escapeHtml(p.cliente_sitio || '—')}</td>
+          <td class="mono" style="font-size:10.5px;">${escapeHtml(plEstatusFechaHoraTexto(p))}</td>
+          <td class="mono" style="font-size:10.5px;">${escapeHtml(p.no_ticket || '—')}</td>
+          <td style="font-size:10.5px;">${escapeHtml(categoria)}</td>
+          <td style="font-size:10.5px;">${escapeHtml(p.estatus_zona || '—')}</td>
+          <td style="font-size:10.5px; white-space:normal; overflow-wrap:break-word;">${escapeHtml(p.team_lider || 'Pendiente Asignar Personal')}</td>
+          <td style="font-size:10.5px;">${plChipEstatusValor(plEstatusEfectivo(p), p.modulo, p)}${cronometroHtml}${slaHtmlEstatus}</td>
+          <td style="color:var(--text-dim); white-space:normal; overflow-wrap:break-word;">${(() => {
+            const fechaHoraProg = plEstatusEfectivo(p) === 'programado' && plFechaHoraProgramadaTexto(p);
+            const prefijo = fechaHoraProg ? `<span style="color:#166534; font-weight:700;">Programado para el ${escapeHtml(fechaHoraProg)} — </span>` : '';
+            return prefijo + escapeHtml(p.estatus_actualizacion || '—');
+          })()}</td>
           <td style="text-align:right;">
-            <button class="btn btn-ghost" data-editar-estatus="${p.id}" style="padding:6px 12px; font-size:12.5px;">Editar</button>
-            <button class="btn btn-ghost" data-ver-plantilla-estatus="${p.id}" style="padding:6px 12px; font-size:12.5px;">Ver caso</button>
+            <div class="row-actions" style="justify-content:flex-end;">
+              <button type="button" class="icon-btn accent" data-ver-plantilla-estatus="${p.id}" title="Ver caso">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+              </button>
+              <button type="button" class="icon-btn" data-editar-estatus="${p.id}" title="Editar">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+              </button>
+              <button type="button" class="icon-btn danger" data-eliminar-plantilla="${p.id}" title="Eliminar" style="color:var(--danger);">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path></svg>
+              </button>
+            </div>
           </td>
         </tr>
       `;
@@ -4154,6 +4273,9 @@ function plRenderEstatusLista(){
       const p = plListaCache.find(x => x.id === Number(btn.dataset.editarEstatus));
       if(p) plAbrirEstatusModal(p);
     });
+  });
+  wrap.querySelectorAll('[data-eliminar-plantilla]').forEach(btn => {
+    btn.addEventListener('click', () => plEliminarPlantilla(Number(btn.dataset.eliminarPlantilla)));
   });
 
   const btnExportar = document.getElementById('btnExportarEstatus');
@@ -4199,7 +4321,12 @@ function plExportarEstatusExcel(){
     if(filas.length === 0) return;
     html += `<tr><td colspan="8" style="background-color:#1F4E78;color:#FFFFFF;font-weight:bold;padding:6px 10px;">${escapeXlsHtml(seccion)}</td></tr>`;
     filas.forEach(({ p, categoria }) => {
-      const est = PL_ESTATUS_OPCIONES[plEstatusEfectivo(p)] || { label:p.estatus_valor || '', bg:'#FFFFFF', color:'#000000' };
+      const estValor = plEstatusEfectivo(p);
+      const est = PL_ESTATUS_OPCIONES[estValor] || { label:p.estatus_valor || '', bg:'#FFFFFF', color:'#000000' };
+      const estFechaHora = estValor === 'programado' ? plFechaHoraProgramadaTexto(p) : '';
+      const actualizacionTexto = estFechaHora
+        ? `Programado para el ${estFechaHora}. ${p.estatus_actualizacion || ''}`.trim()
+        : (p.estatus_actualizacion || '');
       html += '<tr>';
       html += `<td style="padding:5px 10px;border:1px solid #DDDDDD;">${escapeXlsHtml(p.cliente_sitio || '')}</td>`;
       html += `<td style="padding:5px 10px;border:1px solid #DDDDDD;">${escapeXlsHtml(plEstatusFechaHoraTexto(p))}</td>`;
@@ -4208,7 +4335,7 @@ function plExportarEstatusExcel(){
       html += `<td style="padding:5px 10px;border:1px solid #DDDDDD;">${escapeXlsHtml(p.estatus_zona || '')}</td>`;
       html += `<td style="padding:5px 10px;border:1px solid #DDDDDD;">${escapeXlsHtml(p.team_lider || 'Pendiente Asignar Personal')}</td>`;
       html += `<td style="padding:5px 10px;border:1px solid ${est.bg};background-color:${est.bg};color:${est.color};font-weight:bold;">${escapeXlsHtml(est.label)}</td>`;
-      html += `<td style="padding:5px 10px;border:1px solid #DDDDDD;">${escapeXlsHtml(p.estatus_actualizacion || '')}</td>`;
+      html += `<td style="padding:5px 10px;border:1px solid #DDDDDD;">${escapeXlsHtml(actualizacionTexto)}</td>`;
       html += '</tr>';
     });
   });
