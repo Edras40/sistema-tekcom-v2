@@ -494,12 +494,12 @@
   table{ width:100%; border-collapse:collapse; }
   thead th{
     text-align:left;
-    font-size:11px;
+    font-size:10px;
     text-transform:uppercase;
     letter-spacing:0.07em;
     color:var(--text-dim);
     font-weight:700;
-    padding:13px 18px;
+    padding:6px 12px;
     border-bottom:2px solid var(--border);
     white-space:nowrap;
     background:var(--surface-2);
@@ -508,9 +508,10 @@
     z-index:10;
   }
   tbody td{
-    padding:13px 18px;
+    padding:3px 12px;
     border-bottom:1px solid var(--border);
-    font-size:13.5px;
+    font-size:11.5px;
+    line-height:1.3;
     vertical-align:middle;
     white-space:nowrap;
     background:var(--surface);
@@ -559,16 +560,16 @@
   }
   .chip-dot{ width:6px; height:6px; border-radius:50%; }
 
-  .row-actions{ display:flex; gap:6px; }
+  .row-actions{ display:flex; gap:2px; }
   .icon-btn{
-    width:30px; height:30px;
-    border-radius:7px;
+    width:22px; height:22px;
+    border-radius:6px;
     display:flex; align-items:center; justify-content:center;
     color:var(--text-dim);
     border:1px solid transparent;
     transition:background .15s, color .15s, border-color .15s;
   }
-  .icon-btn svg{ width:15px; height:15px; }
+  .icon-btn svg{ width:12px; height:12px; }
   .icon-btn:hover{ background:var(--surface-3); color:var(--text); }
   .icon-btn.danger:hover{ background:var(--danger-soft); color:var(--danger); }
   .icon-btn.accent:hover{ background:var(--accent-soft); color:var(--accent); }
