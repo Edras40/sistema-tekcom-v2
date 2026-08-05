@@ -726,7 +726,8 @@ async function plGuardarYCrearCaso(){
       restUrl = CASOS_REST_URL;
       payloadCaso = {
         casos: noTicket,
-        clasificacion: tipoAfectacion || null,
+        // Clasificación queda manual (ver plCrearCasoMovistarDesdePlantilla) para que el
+        // operador la llene a mano en Casos Movistar, sin heredar el Tipo de Afectación.
         nombre_del_tecnico: operadorTekcom || null,
         status: statusInicial,
         escalonamiento: escalonamientoIso,
@@ -822,6 +823,8 @@ document.getElementById('btnNuevaPlantillaLista').addEventListener('click', () =
 // con línea de tiempo donde se pueden ir agregando avances nuevos.
 // ============================================================
 let plListaCache = [];
+let plListaPaginaActual = 1;
+const PL_LISTA_POR_PAGINA = 11;
 
 async function plCargarLista(){
   const wrap = document.getElementById('plListaWrap');
@@ -1736,6 +1739,11 @@ function plRenderListaFiltrada(){
     return;
   }
 
+  const totalPaginasPl = Math.max(1, Math.ceil(filtradas.length / PL_LISTA_POR_PAGINA));
+  if(plListaPaginaActual > totalPaginasPl) plListaPaginaActual = totalPaginasPl;
+  const startIdxPl = (plListaPaginaActual - 1) * PL_LISTA_POR_PAGINA;
+  const pageRowsPl = filtradas.slice(startIdxPl, startIdxPl + PL_LISTA_POR_PAGINA);
+
   wrap.innerHTML = `
     <table>
       <thead>
@@ -1750,7 +1758,7 @@ function plRenderListaFiltrada(){
         </tr>
       </thead>
       <tbody>
-        ${filtradas.map(p => {
+        ${pageRowsPl.map(p => {
           const estadoCalc = plEstadoDePlantilla(p);
           const avances = p.avances || [];
           const ultimo = avances[avances.length - 1];
@@ -1770,7 +1778,7 @@ function plRenderListaFiltrada(){
             : '';
           const slaInfo = tienePlantillaReal ? plCalcularSlaActivo(p) : null;
           const slaCongelado = !!(slaInfo && (estadoCalc === 'finalizado' || slaInfo.pausadoAhora));
-          const slaHtml = (slaInfo && (!slaInfo.pausadoAhora || estadoCalc === 'finalizado'))
+          const slaHtml = slaInfo
             ? `<div style="margin-top:2px; font-size:11px; color:var(--text-dim);">SLA: <span class="pl-sla-cronometro" data-pl-sla-id="${p.id}" data-pl-sla-base-ms="${slaInfo.baseMs}" data-pl-sla-desde-ms="${slaInfo.desdeMs}" data-pl-sla-congelado="${slaCongelado ? '1' : '0'}" data-pl-sla-ms-congelado="${slaInfo.ms}">--:--:--</span></div>`
             : '';
           return `
@@ -1778,21 +1786,30 @@ function plRenderListaFiltrada(){
               <td style="font-weight:600; font-size:10.5px;">${escapeHtml(p.no_ticket || '—')}</td>
               <td style="font-size:10.5px;">${escapeHtml(plEtiquetaProyecto(p.modulo))}</td>
               <td style="font-size:10.5px;">${escapeHtml(p.cliente_sitio || '—')}</td>
-              <td style="max-width:340px; font-size:11.5px; color:var(--text-dim); white-space:normal; overflow-wrap:break-word;">${descLarga ? escapeHtml(descLarga) : '—'}</td>
+              <td style="max-width:340px; font-size:11.5px; color:var(--text-dim); white-space:normal; overflow-wrap:break-word;">${estadoCalc === 'finalizado' ? 'Operativo Nuevamente, verificar tiempos de respuesta.' : (descLarga ? escapeHtml(descLarga) : '—')}</td>
               <td style="font-size:10.5px;">${(estadoCalc === 'pausado' && ultimo && ultimo.estado === 'programado') ? '<span class="badge" style="background:#DCFCE7;color:#166534;">● Programado</span>' : plChipEstado(estadoCalc)}${alertaHtml}${enviadaHtml}${cronometroHtml}${slaHtml}</td>
               <td style="font-size:10.5px;">${tecnicoTxt}</td>
               <td style="text-align:right;">
-                <button class="btn btn-ghost" data-ver-plantilla="${p.id}" style="padding:6px 12px; font-size:12.5px;">Ver / Continuar</button>
-                <button type="button" class="icon-btn danger" data-eliminar-plantilla="${p.id}" title="Eliminar" style="margin-left:4px; color:var(--danger);">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path></svg>
-                </button>
+                <div class="row-actions" style="justify-content:flex-end;">
+                  <button type="button" class="icon-btn accent" data-ver-plantilla="${p.id}" title="Ver / Continuar">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                  </button>
+                  <button type="button" class="icon-btn danger" data-eliminar-plantilla="${p.id}" title="Eliminar" style="color:var(--danger);">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path></svg>
+                  </button>
+                </div>
               </td>
             </tr>
           `;
         }).join('')}
       </tbody>
     </table>
+    <div class="pagination-bar">
+      <div class="pagination-info">Mostrando ${startIdxPl + 1}–${Math.min(startIdxPl + PL_LISTA_POR_PAGINA, filtradas.length)} de ${filtradas.length} casos</div>
+      <div class="pagination-controls" id="plListaPaginationControls"></div>
+    </div>
   `;
+  renderPlListaPaginationControls(totalPaginasPl);
   wrap.querySelectorAll('[data-ver-plantilla]').forEach(btn => {
     btn.addEventListener('click', () => plAbrirDetalle(Number(btn.dataset.verPlantilla)));
   });
@@ -1821,7 +1838,44 @@ async function plEliminarPlantilla(id){
   }
 }
 
-document.getElementById('plFiltroProyecto').addEventListener('change', plRenderListaFiltrada);
+function renderPlListaPaginationControls(totalPaginas){
+  const wrap = document.getElementById('plListaPaginationControls');
+  if(!wrap || totalPaginas <= 1) return;
+
+  const pages = [];
+  const cur = plListaPaginaActual;
+  pages.push(1);
+  if(cur > 3) pages.push('…');
+  for(let p = Math.max(2, cur-1); p <= Math.min(totalPaginas-1, cur+1); p++) pages.push(p);
+  if(cur < totalPaginas - 2) pages.push('…');
+  if(totalPaginas > 1) pages.push(totalPaginas);
+
+  const btnHtml = (label, page, disabled, active) => `
+    <button class="page-btn ${active ? 'active' : ''}" ${disabled ? 'disabled' : ''} data-page="${page}">${label}</button>
+  `;
+
+  let html = '';
+  html += btnHtml('‹', cur - 1, cur === 1, false);
+  pages.forEach(p => {
+    if(p === '…'){
+      html += `<span class="page-ellipsis">…</span>`;
+    } else {
+      html += btnHtml(p, p, false, p === cur);
+    }
+  });
+  html += btnHtml('›', cur + 1, cur === totalPaginas, false);
+
+  wrap.innerHTML = html;
+
+  wrap.querySelectorAll('.page-btn:not([disabled])').forEach(btn => {
+    btn.addEventListener('click', () => {
+      plListaPaginaActual = parseInt(btn.dataset.page, 10);
+      plRenderListaFiltrada();
+    });
+  });
+}
+
+document.getElementById('plFiltroProyecto').addEventListener('change', () => { plListaPaginaActual = 1; plRenderListaFiltrada(); });
 
 function plActualizarTopbarSegunTab(esEstatus){
   const topbarTitle = document.getElementById('topbarTitle');
@@ -1849,8 +1903,8 @@ document.querySelectorAll('.pl-tab-proyecto').forEach(tab => {
     }
   });
 });
-document.getElementById('plFiltroEstado').addEventListener('change', plRenderListaFiltrada);
-document.getElementById('plFiltroBuscar').addEventListener('input', plRenderListaFiltrada);
+document.getElementById('plFiltroEstado').addEventListener('change', () => { plListaPaginaActual = 1; plRenderListaFiltrada(); });
+document.getElementById('plFiltroBuscar').addEventListener('input', () => { plListaPaginaActual = 1; plRenderListaFiltrada(); });
 
 function plEtiquetaEstadoAvance(estado){
   const mapa = {
@@ -2684,7 +2738,10 @@ async function plCrearCasoMovistarDesdePlantilla(p, materiales){
     const dia = fechaEscalonamiento ? fechaEscalonamiento.getDate() : null;
 
     const payload = {
-      clasificacion: p.tipo_afectacion || null,
+      // Clasificación se dejó de llenar automáticamente con el Tipo de Afectación de la
+      // plantilla: causaba que se sobrescribiera el valor cada vez que el caso se
+      // sincronizaba de nuevo (al pausar/reanudar/finalizar), incluso después de que el
+      // operador lo corrigiera a mano en Casos Movistar. Ahora es 100% manual.
       // Red se llena automáticamente con el Tipo de Afectación de la plantilla.
       red: p.tipo_afectacion || null,
       casos: p.cliente_sitio || null,
@@ -4227,7 +4284,7 @@ function plRenderEstatusLista(){
       const estadoPlantillaEstatus = plEstadoDePlantilla(p);
       const slaInfoEstatus = tienePlantillaReal ? plCalcularSlaActivo(p) : null;
       const slaCongeladoEstatus = !!(slaInfoEstatus && (estadoPlantillaEstatus === 'finalizado' || slaInfoEstatus.pausadoAhora));
-      const slaHtmlEstatus = (slaInfoEstatus && (!slaInfoEstatus.pausadoAhora || estadoPlantillaEstatus === 'finalizado'))
+      const slaHtmlEstatus = slaInfoEstatus
         ? `<div style="margin-top:2px; font-size:11px; color:var(--text-dim);">SLA: <span class="pl-sla-cronometro" data-pl-sla-id="${p.id}" data-pl-sla-base-ms="${slaInfoEstatus.baseMs}" data-pl-sla-desde-ms="${slaInfoEstatus.desdeMs}" data-pl-sla-congelado="${slaCongeladoEstatus ? '1' : '0'}" data-pl-sla-ms-congelado="${slaInfoEstatus.ms}">--:--:--</span></div>`
         : '';
       html += `

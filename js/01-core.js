@@ -2123,7 +2123,7 @@ document.getElementById('sitioDeleteConfirmBtn').addEventListener('click', async
 ============================================================ */
 const CUADRILLAS_LIST = [
   'Occidente','Oriente 1','Oriente 2','Central 1 FO','Central 2 FO','Central 3 FO',
-  'Central 4 FO','Central 5 FO','Central 6 FO','Central 1 CU','Central 2 CU','CPE','Supervisor'
+  'Central 4 FO','Central 5 FO','Central 6 FO','Central 1 CU','Central 2 CU','CPE','Supervisor','UDP'
 ];
 
 let nominaSelectedSites = [];   // sitios elegidos para la solicitud

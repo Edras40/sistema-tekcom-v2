@@ -1398,9 +1398,9 @@ function renderDashboard(){
     document.querySelectorAll('.teclider-tab-btn').forEach(btn => {
       btn.onclick = () => { dashTecLiderTab = btn.dataset.teclidertab; renderBarrasTecnico(getDashFiltrados()); };
     });
-    renderRankingCausas(datos);
-    document.querySelectorAll('.causa-tab-btn').forEach(btn => {
-      btn.onclick = () => { dashCausaTab = btn.dataset.causatab; renderRankingCausas(getDashFiltrados()); };
+    renderGraficoClasificacion(datos);
+    document.querySelectorAll('.clasificacion-tab-btn').forEach(btn => {
+      btn.onclick = () => { dashClasificacionTab = btn.dataset.clasificaciontab; renderGraficoClasificacion(getDashFiltrados()); };
     });
     renderGraficoCausaRaiz(datos);
   }, 100);
@@ -1503,6 +1503,16 @@ function renderValidacionHyve(datos){
 }
 
 // ---- Zona ----
+// Normaliza cualquier cuadrilla específica (ej. "Central 3 FO", "Central 1 CU", "Oriente 2")
+// a su zona general, para que la gráfica de "Casos por Cuadrilla" solo muestre las tres
+// zonas generales (Central, Oriente, Occidente) en vez de fragmentarse por cada cuadrilla.
+function zonaGeneral(zona){
+  if(!zona) return zona;
+  if(zona.startsWith('Central')) return 'Central';
+  if(zona.startsWith('Oriente')) return 'Oriente';
+  if(zona.startsWith('Occidente')) return 'Occidente';
+  return zona;
+}
 function renderGraficoZona(datos){
   setTabStyle(document.querySelectorAll('.zona-tab-btn'), dashZonaTab, 'data-zonatab');
   const ZONA_COLORS = ['#0A6A99','#3DDC97','#E8A23D','#EF5B6E','#4FB8E8','#C266E8'];
@@ -1510,7 +1520,7 @@ function renderGraficoZona(datos){
 
   if(dashZonaTab === 'casos'){
     const porZona = {};
-    datos.forEach(c => { if(c.zona){ porZona[c.zona] = (porZona[c.zona]||0)+1; } });
+    datos.forEach(c => { if(c.zona){ const z = zonaGeneral(c.zona); porZona[z] = (porZona[z]||0)+1; } });
     const zonasOrdenadas = Object.entries(porZona).sort((a,b)=>b[1]-a[1]);
     const totalZona = zonasOrdenadas.reduce((s,[,v])=>s+v,0);
     if(!zonasOrdenadas.length){ zonaWrap.innerHTML='<div class="material-empty">Sin datos</div>'; return; }
@@ -1527,7 +1537,7 @@ function renderGraficoZona(datos){
     zonaWrap.querySelectorAll('[data-zona]').forEach(el => {
       el.addEventListener('click', () => {
         const zona = el.dataset.zona;
-        abrirModalCasosDashboard(`Cuadrilla: ${zona}`, datos.filter(c => c.zona === zona));
+        abrirModalCasosDashboard(`Cuadrilla: ${zona}`, datos.filter(c => zonaGeneral(c.zona) === zona));
       });
     });
     requestAnimationFrame(() => {
@@ -1551,7 +1561,7 @@ function renderGraficoZona(datos){
       ctx.fillText(totalZona,cx,cy-8); ctx.font='11px Inter,sans-serif'; ctx.fillStyle=isLight?'#666D85':'#8A8FA3'; ctx.fillText('Total',cx,cy+12);
     });
   } else {
-    const slaData = calcSlaPromPorGrupo(datos, 'zona');
+    const slaData = calcSlaPromPorGrupo(datos.map(c => ({ ...c, zona: zonaGeneral(c.zona) })), 'zona');
     if(!slaData.length){ zonaWrap.innerHTML='<div class="material-empty">Sin datos de SLA</div>'; return; }
     zonaWrap.innerHTML = slaData.map(([zona,min],i) => `
       <div class="dash-rank-item">
@@ -1586,6 +1596,15 @@ function renderRankingTecnicos(datos){
   }
 }
 
+// Primer nombre + apellido, para mostrar en gráficas donde el nombre completo no cabe.
+// Antes se tomaban las primeras 2 palabras (nombre + segundo nombre); ahora se toma la
+// primera palabra (nombre) y la última (apellido).
+function nombreYApellido(nombreCompleto){
+  const partes = (nombreCompleto || '').trim().split(/\s+/).filter(Boolean);
+  if(partes.length <= 1) return nombreCompleto || '';
+  return `${partes[0]} ${partes[partes.length - 1]}`;
+}
+
 // ---- Barras Team Líder ----
 function renderBarrasTecnico(datos){
   setTabStyle(document.querySelectorAll('.teclider-tab-btn'), dashTecLiderTab, 'data-teclidertab');
@@ -1598,7 +1617,7 @@ function renderBarrasTecnico(datos){
     wrap.innerHTML = ordered.length ? `<div class="dash-bar-wrap">${ordered.map(([tec,count]) => {
       const pct=Math.round((count/maxV)*100);
       return `<div class="dash-bar-row" style="cursor:pointer;" data-tec="${escapeHtml(tec)}">
-        <div class="dash-bar-label" title="${escapeHtml(tec)}">${escapeHtml(tec.split(' ').slice(0,2).join(' '))}</div>
+        <div class="dash-bar-label" title="${escapeHtml(tec)}">${escapeHtml(nombreYApellido(tec))}</div>
         <div class="dash-bar-track"><div class="dash-bar-fill" style="width:${Math.max(pct,3)}%;"><span class="dash-bar-val">${count}</span></div></div>
       </div>`;}).join('')}</div>` : '<div class="material-empty">Sin datos</div>';
     wrap.querySelectorAll('[data-tec]').forEach(el => {
@@ -1617,7 +1636,7 @@ function renderBarrasTecnico(datos){
       const dentro = min <= limiteMin;
       const color = dentro ? '#16A34A' : '#DC2626';
       return `<div class="dash-bar-row">
-        <div class="dash-bar-label" title="${escapeHtml(tec)}">${escapeHtml(tec.split(' ').slice(0,2).join(' '))}</div>
+        <div class="dash-bar-label" title="${escapeHtml(tec)}">${escapeHtml(nombreYApellido(tec))}</div>
         <div class="dash-bar-track">
           <div class="dash-bar-fill" style="width:${Math.max(pct,3)}%;background:${color};"><span class="dash-bar-val">${minToHHMM(min)}</span></div>
           <div style="position:absolute;top:0;bottom:0;left:${limitePct}%;width:2px;background:rgba(0,0,0,0.35);"></div>
@@ -1627,13 +1646,74 @@ function renderBarrasTecnico(datos){
   }
 }
 
+// ---- Casos por Clasificación (gráfico de pastel) ----
+let dashClasificacionTab = 'casos';
+const CLASIFICACION_COLORS = ['#0A6A99','#3DDC97','#E8A23D','#EF5B6E','#4FB8E8','#C266E8','#F59E0B','#22C55E','#F472B6','#818CF8'];
+function renderGraficoClasificacion(datos){
+  setTabStyle(document.querySelectorAll('.clasificacion-tab-btn'), dashClasificacionTab, 'data-clasificaciontab');
+  const wrap = document.getElementById('dashClasificacionChart');
+  if(!wrap) return;
+
+  if(dashClasificacionTab === 'sla'){
+    const slaData = calcSlaPromPorGrupo(datos, 'clasificacion');
+    wrap.innerHTML = slaData.length ? `<div style="display:flex;flex-direction:column;gap:8px;width:100%;">${slaData.map(([clasificacion,min]) => `
+      <div class="dash-rank-item"><div class="dash-rank-name">${escapeHtml(clasificacion)}</div><div class="dash-rank-meta">SLA Prom: ${minToHHMM(min)}</div></div>`).join('')}</div>`
+      : '<div class="material-empty">Sin datos de SLA</div>';
+    return;
+  }
+
+  const porClasificacion = {};
+  datos.forEach(c => { if(c.clasificacion){ porClasificacion[c.clasificacion] = (porClasificacion[c.clasificacion]||0)+1; } });
+  const entradas = Object.entries(porClasificacion).sort((a,b)=>b[1]-a[1]);
+  const total = entradas.reduce((s,[,v])=>s+v,0);
+  if(!entradas.length){ wrap.innerHTML = '<div class="material-empty">Sin datos</div>'; return; }
+
+  wrap.innerHTML = `
+    <canvas id="canvasClasificacion" style="width:260px;height:260px;flex-shrink:0;"></canvas>
+    <div style="display:flex;flex-direction:column;gap:8px;flex:1;min-width:220px;">
+      ${entradas.map(([clasificacion,count],i) => `
+        <div style="display:flex;align-items:center;gap:8px;cursor:pointer;" data-clasificacion="${escapeHtml(clasificacion)}">
+          <div style="width:10px;height:10px;border-radius:50%;background:${CLASIFICACION_COLORS[i%CLASIFICACION_COLORS.length]};flex-shrink:0;"></div>
+          <span style="font-size:12.5px;font-weight:600;flex:1;">${escapeHtml(clasificacion)}</span>
+          <span style="font-size:12px;color:var(--text-dim);">${count} <span style="opacity:0.7;">(${Math.round(count/total*100)}%)</span></span>
+        </div>`).join('')}
+    </div>`;
+  wrap.querySelectorAll('[data-clasificacion]').forEach(el => {
+    el.addEventListener('click', () => {
+      const clasificacion = el.dataset.clasificacion;
+      abrirModalCasosDashboard(`Clasificación: ${clasificacion}`, datos.filter(c => c.clasificacion === clasificacion));
+    });
+  });
+
+  requestAnimationFrame(() => {
+    const canvas = document.getElementById('canvasClasificacion'); if(!canvas) return;
+    const dpr = window.devicePixelRatio||1; const W=260; const H=260;
+    canvas.width=W*dpr; canvas.height=H*dpr; canvas.style.width=W+'px'; canvas.style.height=H+'px';
+    const ctx = canvas.getContext('2d'); ctx.scale(dpr,dpr);
+    const cx=W/2; const cy=H/2; const r=Math.min(cx,cy)-10; const inner=r*0.55;
+    let angle=-Math.PI/2;
+    entradas.forEach(([,count],i) => {
+      const slice=(count/total)*Math.PI*2;
+      ctx.beginPath(); ctx.moveTo(cx,cy); ctx.arc(cx,cy,r,angle,angle+slice); ctx.closePath();
+      ctx.fillStyle=CLASIFICACION_COLORS[i%CLASIFICACION_COLORS.length]; ctx.fill();
+      ctx.strokeStyle=document.body.classList.contains('light')?'#fff':'#141822'; ctx.lineWidth=2; ctx.stroke();
+      angle+=slice;
+    });
+    ctx.beginPath(); ctx.arc(cx,cy,inner,0,Math.PI*2);
+    ctx.fillStyle=document.body.classList.contains('light')?'#fff':'#141822'; ctx.fill();
+    const isLight=document.body.classList.contains('light');
+    ctx.fillStyle=isLight?'#1B1F2D':'#E7E9F2'; ctx.font=`bold ${Math.round(r*0.28)}px Space Grotesk,sans-serif`; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(total,cx,cy-8); ctx.font='11px Inter,sans-serif'; ctx.fillStyle=isLight?'#666D85':'#8A8FA3'; ctx.fillText('Total',cx,cy+12);
+  });
+}
+
 // ---- Top 10 Causa Raíz (gráfico de pastel) ----
 const CAUSA_RAIZ_COLORS = ['#0A6A99','#3DDC97','#E8A23D','#EF5B6E','#4FB8E8','#C266E8','#F59E0B','#22C55E','#F472B6','#818CF8'];
 function renderGraficoCausaRaiz(datos){
   const wrap = document.getElementById('dashCausaRaizChart');
   if(!wrap) return;
   const porCausa = {};
-  datos.forEach(c => { if(c.causa){ porCausa[c.causa] = (porCausa[c.causa]||0)+1; } });
+  datos.forEach(c => { if(c.sub_categoria){ porCausa[c.sub_categoria] = (porCausa[c.sub_categoria]||0)+1; } });
   const top10 = Object.entries(porCausa).sort((a,b)=>b[1]-a[1]).slice(0,10);
   const total = top10.reduce((s,[,v])=>s+v,0);
   if(!top10.length){ wrap.innerHTML = '<div class="material-empty">Sin datos</div>'; return; }
@@ -1651,7 +1731,7 @@ function renderGraficoCausaRaiz(datos){
   wrap.querySelectorAll('[data-causa]').forEach(el => {
     el.addEventListener('click', () => {
       const causa = el.dataset.causa;
-      abrirModalCasosDashboard(`Causa Raíz: ${causa}`, datos.filter(c => c.causa === causa));
+      abrirModalCasosDashboard(`Causa Raíz: ${causa}`, datos.filter(c => c.sub_categoria === causa));
     });
   });
 
@@ -1678,30 +1758,6 @@ function renderGraficoCausaRaiz(datos){
 }
 
 // ---- Top 3 Causas ----
-function renderRankingCausas(datos){
-  setTabStyle(document.querySelectorAll('.causa-tab-btn'), dashCausaTab, 'data-causatab');
-  const wrap = document.getElementById('dashRankingCausas');
-  if(dashCausaTab === 'casos'){
-    const porCausa = {};
-    datos.forEach(c => { if(c.causa){ porCausa[c.causa]=(porCausa[c.causa]||0)+1; } });
-    const top = Object.entries(porCausa).sort((a,b)=>b[1]-a[1]).slice(0,3);
-    wrap.innerHTML = top.length ? top.map(([causa,count]) => `
-      <div class="dash-rank-item" style="cursor:pointer;" data-causa="${escapeHtml(causa)}"><div class="dash-rank-name">${escapeHtml(causa)}</div><div class="dash-rank-meta">Casos: ${count}</div></div>`).join('')
-      : '<div class="material-empty">Sin datos</div>';
-    wrap.querySelectorAll('[data-causa]').forEach(el => {
-      el.addEventListener('click', () => {
-        const causa = el.dataset.causa;
-        abrirModalCasosDashboard(`Causa: ${causa}`, datos.filter(c => c.causa === causa));
-      });
-    });
-  } else {
-    const slaData = calcSlaPromPorGrupo(datos, 'causa').slice(0,3);
-    wrap.innerHTML = slaData.length ? slaData.map(([causa,min]) => `
-      <div class="dash-rank-item"><div class="dash-rank-name">${escapeHtml(causa)}</div><div class="dash-rank-meta">SLA Prom: ${minToHHMM(min)}</div></div>`).join('')
-      : '<div class="material-empty">Sin datos de SLA</div>';
-  }
-}
-
 /* ============================================================
    MATERIALES — Resumen consolidado
 ============================================================ */
