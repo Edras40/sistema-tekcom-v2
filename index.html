@@ -1578,14 +1578,14 @@
           <div id="dashChartTecnico" style="min-height:300px;"></div>
         </div>
         <div class="panel" style="padding:20px;">
-          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:14px;">
-            <div class="caso-section-title" style="border:none; padding:0; margin:0; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Top 3 Causas</div>
-            <div style="display:flex; gap:2px; background:var(--surface-3); border-radius:8px; padding:3px; flex-shrink:0;">
-              <button class="causa-tab-btn dash-tab-btn active" data-causatab="casos">Casos</button>
-              <button class="causa-tab-btn dash-tab-btn" data-causatab="sla">SLA Prom.</button>
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
+            <div class="caso-section-title" style="border:none; padding:0; margin:0;">Casos por Clasificación</div>
+            <div style="display:flex; gap:2px; background:var(--surface-3); border-radius:8px; padding:3px;">
+              <button class="clasificacion-tab-btn dash-tab-btn active" data-clasificaciontab="casos">Casos</button>
+              <button class="clasificacion-tab-btn dash-tab-btn" data-clasificaciontab="sla">SLA Prom.</button>
             </div>
           </div>
-          <div id="dashRankingCausas" class="dash-ranking-list"></div>
+          <div id="dashClasificacionChart" style="display:flex; align-items:center; gap:24px; flex-wrap:wrap;"></div>
         </div>
         <div class="panel" style="padding:20px;" id="dashPanelHyve">
           <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
@@ -3069,6 +3069,7 @@
               <option>Central 2 CU</option>
               <option>CPE</option>
               <option>Supervisor</option>
+              <option>UDP</option>
             </select>
           </div>
           <div class="form-field">
@@ -3428,7 +3429,7 @@
               <label>Clasificación</label>
               <select id="c_clasificacion">
                 <option value="">—</option>
-                <option>Interurbanos</option>
+                <option>Interurbano</option>
                 <option>UM</option>
                 <option>Preventivo</option>
                 <option>IBW</option>
