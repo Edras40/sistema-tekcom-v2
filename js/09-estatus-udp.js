@@ -653,27 +653,80 @@ function udpDashLinea(contenedorId, filas, vacioTxt){
 
 // ============================================================
 // OPERADOR DE TURNO (Inicio)
-// Se define una vez por jornada y las plantillas lo toman solo:
-// comparten la misma clave de localStorage que ya usaba el detalle.
-// ============================================================
-const OPERADOR_TURNO_KEY = 'opk_operador_turno_tekcom';
+// Antes se guardaba en localStorage (cada navegador tenía su propio valor).
+// Ahora es un valor COMPARTIDO en la tabla app_configuracion: todos ven el
+// mismo operador de turno, y solo la cuenta noc@tekcomca.com puede cambiarlo
+// — para el resto queda bloqueado (solo lectura), reflejando lo que esa
+// cuenta haya definido.
+const APP_CONFIG_REST_URL = `${SUPABASE_URL}/rest/v1/app_configuracion`;
+const OPERADOR_TURNO_EMAIL_AUTORIZADO = 'noc@tekcomca.com';
+let operadorTurnoValorActual = '';
+
+function puedeEditarOperadorTurno(){
+  const usuario = (typeof opkSesionActual !== 'undefined' && opkSesionActual)
+    ? (opkSesionActual.usuario || '') : '';
+  return usuario.trim().toLowerCase() === OPERADOR_TURNO_EMAIL_AUTORIZADO;
+}
 
 function operadorTurnoActual(){
-  try{ return localStorage.getItem(OPERADOR_TURNO_KEY) || ''; }catch(e){ return ''; }
+  return operadorTurnoValorActual;
+}
+
+async function cargarOperadorTurnoDesdeDB(){
+  try{
+    const res = await fetch(`${APP_CONFIG_REST_URL}?clave=eq.operador_turno&select=valor`, { headers: sbHeaders });
+    if(!res.ok) return;
+    const data = await res.json();
+    operadorTurnoValorActual = (data[0] && data[0].valor) || '';
+    renderInicioOperadorTurno();
+    const selPl = document.getElementById('plOperadorTurno');
+    if(selPl) selPl.innerHTML = opOpcionesHtml('tekcom', operadorTurnoValorActual);
+  }catch(e){ console.error('No se pudo cargar el operador de turno:', e); }
+}
+
+async function guardarOperadorTurnoEnDB(valor){
+  const usuario = (typeof opkSesionActual !== 'undefined' && opkSesionActual) ? (opkSesionActual.usuario || '') : '';
+  const res = await fetch(`${APP_CONFIG_REST_URL}?clave=eq.operador_turno`, {
+    method: 'PATCH',
+    headers: { ...sbHeaders, 'Prefer': 'return=minimal' },
+    body: JSON.stringify({ valor, actualizado_en: new Date().toISOString(), actualizado_por: usuario })
+  });
+  if(!res.ok) throw new Error(await res.text());
 }
 
 function renderInicioOperadorTurno(){
   const sel = document.getElementById('inicioOperadorTurno');
   if(!sel) return;
   const actual = operadorTurnoActual();
-  sel.innerHTML = opOpcionesHtml('tekcom', actual);
+  const editable = puedeEditarOperadorTurno();
+  if(editable){
+    sel.innerHTML = opOpcionesHtml('tekcom', actual);
+    sel.disabled = false;
+    sel.title = '';
+  } else {
+    // Solo lectura para cualquiera que no sea noc@tekcomca.com: se muestra el
+    // valor actual como única opción, sin poder elegir otro.
+    sel.innerHTML = `<option value="${escapeHtml(actual)}" selected>${actual ? escapeHtml(actual) : 'Sin definir'}</option>`;
+    sel.disabled = true;
+    sel.title = 'Solo noc@tekcomca.com puede cambiar el operador de turno';
+  }
 }
 
-document.getElementById('inicioOperadorTurno')?.addEventListener('change', (e) => {
-  try{ localStorage.setItem(OPERADOR_TURNO_KEY, e.target.value); }catch(err){}
-  renderInicioOperadorTurno();
-  // El selector del detalle de plantilla queda alineado de inmediato.
-  const selPl = document.getElementById('plOperadorTurno');
-  if(selPl) selPl.innerHTML = opOpcionesHtml('tekcom', e.target.value);
-  showToast(e.target.value ? `Operador de turno: ${e.target.value}` : 'Operador de turno sin definir');
+document.getElementById('inicioOperadorTurno')?.addEventListener('change', async (e) => {
+  if(!puedeEditarOperadorTurno()) return; // por si acaso; el select ya queda disabled para los demás
+  const valor = e.target.value;
+  try{
+    await guardarOperadorTurnoEnDB(valor);
+    operadorTurnoValorActual = valor;
+    renderInicioOperadorTurno();
+    const selPl = document.getElementById('plOperadorTurno');
+    if(selPl) selPl.innerHTML = opOpcionesHtml('tekcom', valor);
+    showToast(valor ? `Operador de turno: ${valor}` : 'Operador de turno sin definir');
+  }catch(err){
+    console.error(err);
+    showToast('No se pudo actualizar el operador de turno', 'error');
+    renderInicioOperadorTurno(); // revierte visualmente al valor real
+  }
 });
+
+cargarOperadorTurnoDesdeDB();

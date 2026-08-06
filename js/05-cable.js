@@ -1111,11 +1111,13 @@ function renderCableGraficoCausaRaiz(datos){
     const ctx = canvas.getContext('2d'); ctx.scale(dpr,dpr);
     const cx=W/2; const cy=H/2; const r=Math.min(cx,cy)-10; const inner=r*0.55;
     let angle=-Math.PI/2;
-    top10.forEach(([,count],i) => {
+    const sectores = [];
+    top10.forEach(([causa,count],i) => {
       const slice=(count/total)*Math.PI*2;
       ctx.beginPath(); ctx.moveTo(cx,cy); ctx.arc(cx,cy,r,angle,angle+slice); ctx.closePath();
       ctx.fillStyle=CAUSA_RAIZ_COLORS[i%CAUSA_RAIZ_COLORS.length]; ctx.fill();
       ctx.strokeStyle=document.body.classList.contains('light')?'#fff':'#141822'; ctx.lineWidth=2; ctx.stroke();
+      sectores.push({ causa, desde: angle, hasta: angle+slice });
       angle+=slice;
     });
     ctx.beginPath(); ctx.arc(cx,cy,inner,0,Math.PI*2);
@@ -1123,6 +1125,18 @@ function renderCableGraficoCausaRaiz(datos){
     const isLight=document.body.classList.contains('light');
     ctx.fillStyle=isLight?'#1B1F2D':'#E7E9F2'; ctx.font=`bold ${Math.round(r*0.28)}px Space Grotesk,sans-serif`; ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillText(total,cx,cy-8); ctx.font='11px Inter,sans-serif'; ctx.fillStyle=isLight?'#666D85':'#8A8FA3'; ctx.fillText('Total',cx,cy+12);
+
+    canvas.style.cursor = 'pointer';
+    canvas.onclick = (ev) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = ev.clientX - rect.left - cx;
+      const y = ev.clientY - rect.top - cy;
+      const dist = Math.sqrt(x*x + y*y);
+      if(dist < inner || dist > r) return;
+      const clickAng = (Math.atan2(y, x) + Math.PI/2 + Math.PI*2) % (Math.PI*2);
+      const sector = sectores.find(s => clickAng >= (s.desde + Math.PI/2) && clickAng < (s.hasta + Math.PI/2));
+      if(sector) abrirModalCasosDashboard(`Causa Raíz: ${sector.causa}`, datos.filter(c => c.causa === sector.causa));
+    };
   });
 }
 

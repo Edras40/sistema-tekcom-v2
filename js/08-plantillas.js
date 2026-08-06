@@ -83,15 +83,31 @@ function opActualizarTodosLosSelects(){
 function plCargarOperadorTurno(){
   const sel = document.getElementById('plOperadorTurno');
   if(!sel) return;
-  let guardado = '';
-  try{ guardado = localStorage.getItem('opk_operador_turno_tekcom') || ''; }catch(e){}
-  sel.innerHTML = opOpcionesHtml('tekcom', guardado);
+  const guardado = (typeof operadorTurnoActual === 'function') ? operadorTurnoActual() : '';
+  const editable = (typeof puedeEditarOperadorTurno === 'function') ? puedeEditarOperadorTurno() : false;
+  if(editable){
+    sel.innerHTML = opOpcionesHtml('tekcom', guardado);
+    sel.disabled = false;
+    sel.title = '';
+  } else {
+    sel.innerHTML = `<option value="${escapeHtml(guardado)}" selected>${guardado ? escapeHtml(guardado) : 'Sin definir'}</option>`;
+    sel.disabled = true;
+    sel.title = 'Solo noc@tekcomca.com puede cambiar el operador de turno';
+  }
 }
 (function(){
   const sel = document.getElementById('plOperadorTurno');
   if(sel){
-    sel.addEventListener('change', () => {
-      try{ localStorage.setItem('opk_operador_turno_tekcom', sel.value); }catch(e){}
+    sel.addEventListener('change', async () => {
+      if(typeof puedeEditarOperadorTurno === 'function' && !puedeEditarOperadorTurno()) return;
+      try{
+        await guardarOperadorTurnoEnDB(sel.value);
+        operadorTurnoValorActual = sel.value;
+        if(typeof renderInicioOperadorTurno === 'function') renderInicioOperadorTurno();
+      }catch(e){
+        console.error(e);
+        showToast('No se pudo actualizar el operador de turno', 'error');
+      }
     });
   }
 })();
@@ -1180,6 +1196,7 @@ function plCalcularSlaActivo(p){
       // en ese caso se usa el momento real de "Retomado", para no proyectar la reanudación
       // a un instante que nunca ocurrió y terminar restando de más (SLA en 0:00 indebido).
       let reanuda = t;
+      let sigueCongeladoEsperandoHora = false;
       if(avancePausa && avancePausa.estado === 'programado' && avancePausa.programado_fecha && avancePausa.programado_hora){
         const progTs = new Date(`${avancePausa.programado_fecha}T${plHHMM(avancePausa.programado_hora)}:00`).getTime();
         // Solo se usa la hora agendada si esa hora ya llegó a ocurrir dentro de la vida real
@@ -1187,7 +1204,24 @@ function plCalcularSlaActivo(p){
         // caso se resolvió antes de que la hora agendada llegara, esa hora nunca "pasó" de
         // verdad, así que se respeta el momento real de "Retomado" para no perder el tiempo
         // que sí se trabajó activamente.
-        if(!isNaN(progTs) && progTs <= limiteSuperior) reanuda = progTs;
+        if(!isNaN(progTs)){
+          if(progTs <= limiteSuperior){
+            reanuda = progTs;
+          } else if(!estaFinalizadoRef){
+            // El caso sigue ABIERTO (no finalizado) y la hora agendada TODAVÍA no llega:
+            // el SLA se queda congelado (como si siguiera pausado) en vez de arrancar a
+            // contar desde el Retomado real. Sin esto, el SLA en vivo se inflaba durante
+            // la espera y luego "saltaba hacia atrás" en cuanto el reloj alcanzaba la
+            // hora agendada, lo cual se veía como un error en pantalla. Si el caso se
+            // finaliza mientras se espera, la rama de abajo (estaFinalizado) sí usa el
+            // Retomado real, tal como ya funcionaba.
+            sigueCongeladoEsperandoHora = true;
+          }
+        }
+      }
+      if(sigueCongeladoEsperandoHora){
+        // No se limpia pausadoDesde/avancePausa: a efectos del SLA, sigue "pausado".
+        continue;
       }
       cursor = reanuda;
       pausadoDesde = null;
@@ -4770,6 +4804,58 @@ function opkGuardarTokens(authData, usuario){
     }));
   }catch(e){}
 }
+
+// Red de seguridad final contra el token expirado: además de la renovación cada 20 min,
+// se intercepta CUALQUIER petición a Supabase que falle por "JWT expired" (por ejemplo si
+// alguien dejó la pestaña abierta más tiempo del esperado) y se renueva el token y se
+// reintenta la misma petición UNA sola vez, de forma transparente. Así ningún guardado
+// se pierde solo porque el token expiró justo en ese momento.
+(function(){
+  const fetchOriginal = window.fetch.bind(window);
+  let renovacionEnCurso = null;
+
+  async function renovarToken(){
+    if(renovacionEnCurso) return renovacionEnCurso;
+    renovacionEnCurso = (async () => {
+      let guardado = null;
+      try{
+        const raw = localStorage.getItem(OPK_SESION_KEY);
+        guardado = raw ? JSON.parse(raw) : null;
+      }catch(e){}
+      if(!guardado || !guardado.refresh_token) throw new Error('Sin sesión para renovar');
+      const authData = await opkAuthRefresh(guardado.refresh_token);
+      opkGuardarTokens(authData, guardado.usuario);
+      if(opkSesionActual) opkSesionActual.access_token = authData.access_token;
+      return authData.access_token;
+    })();
+    try{
+      return await renovacionEnCurso;
+    } finally {
+      renovacionEnCurso = null;
+    }
+  }
+
+  window.fetch = async function(url, options){
+    const esUrlSupabase = typeof url === 'string' && url.includes(SUPABASE_URL) && !url.includes('/auth/v1/');
+    const yaReintentado = options && options.__jwtReintento;
+    const res = await fetchOriginal(url, options);
+
+    if(esUrlSupabase && !yaReintentado && res.status === 401){
+      let cuerpo = '';
+      try{ cuerpo = await res.clone().text(); }catch(e){}
+      if(cuerpo.includes('JWT expired') || cuerpo.includes('PGRST303')){
+        try{
+          await renovarToken();
+          const headersNuevos = { ...((options && options.headers) || {}), ...sbHeaders };
+          return fetchOriginal(url, { ...options, headers: headersNuevos, __jwtReintento: true });
+        }catch(e){
+          console.error('No se pudo renovar el token para reintentar la petición:', e);
+        }
+      }
+    }
+    return res;
+  };
+})();
 async function opkFetchPerfilPorUsuario(usuario, accessToken){
   const res = await fetch(`${USUARIOS_TABLA_URL}?usuario=eq.${encodeURIComponent(usuario)}&select=id,nombre,usuario,rol,permisos`, {
     headers:{ 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${accessToken}` }
@@ -4791,6 +4877,7 @@ function opkIniciarSesion(usuario){
   opkColapsarMenuInicial();
   opkObservarRestriccionesEdicion();
   if(typeof plCargarLista === 'function') plCargarLista();
+  if(typeof cargarOperadorTurnoDesdeDB === 'function') cargarOperadorTurnoDesdeDB();
 }
 
 document.getElementById('loginBtn').addEventListener('click', async () => {
@@ -4896,6 +4983,30 @@ document.getElementById('loginUsuario').addEventListener('keydown', (e) => {
   await intentarConToken(guardado.refresh_token, false);
 })();
 
+// Renovación automática del token en segundo plano: sin esto, el access_token de
+// Supabase expira típicamente a los 30-60 min y todo empieza a fallar silenciosamente
+// hasta que alguien recarga la página a mano. Renovamos cada 20 minutos (con margen de
+// sobra frente a la expiración real) mientras haya una sesión activa, usando el mismo
+// refresh_token guardado; si falla, se deja que el próximo refresco de página maneje
+// el cierre de sesión, en vez de interrumpir a la persona a media tarea.
+setInterval(async () => {
+  if(!opkSesionActual) return;
+  let guardado = null;
+  try{
+    const raw = localStorage.getItem(OPK_SESION_KEY);
+    guardado = raw ? JSON.parse(raw) : null;
+  }catch(e){}
+  if(!guardado || !guardado.refresh_token) return;
+  try{
+    const authData = await opkAuthRefresh(guardado.refresh_token);
+    const usuarioActual = guardado.usuario;
+    opkGuardarTokens(authData, usuarioActual);
+    if(opkSesionActual) opkSesionActual.access_token = authData.access_token;
+  }catch(err){
+    console.error('No se pudo renovar la sesión en segundo plano:', err);
+  }
+}, 20 * 60 * 1000);
+
 // Si la página se restaura desde el caché de atrás/adelante del navegador (bfcache),
 // se fuerza a cerrar sesión y mostrar el login: así "atrás" saca de la sesión y
 // "adelante" no puede volver a mostrar el panel ya autenticado.
@@ -4913,6 +5024,8 @@ window.addEventListener('pageshow', (event) => {
 // (único) y su nombre, para no tener que reescribirlos en cada caso.
 // ============================================================
 let allEscuelas = [];
+let escuelaPaginaActual = 1;
+const ESCUELAS_POR_PAGINA = 25;
 let escuelasLoaded = false;
 let editandoEscuelaId = null;
 
@@ -4921,9 +5034,11 @@ async function fetchEscuelas(force){
   const wrap = document.getElementById('escuelasTablaWrap');
   if(wrap) wrap.innerHTML = '<div class="material-empty">Cargando...</div>';
   try{
-    const res = await fetch(`${ESCUELAS_REST_URL}?select=*&order=nombre.asc`, { headers: sbHeaders });
+    const res = await fetch(`${ESCUELAS_REST_URL}?select=*`, { headers: sbHeaders });
     if(!res.ok) throw new Error(await res.text());
     allEscuelas = await res.json();
+    // Orden numérico por ID (10002, 10003, 10004...), no alfabético por nombre.
+    allEscuelas.sort((a, b) => (parseInt(b.id_escuela, 10) || 0) - (parseInt(a.id_escuela, 10) || 0));
     escuelasLoaded = true;
     renderEscuelasTabla();
   }catch(err){
@@ -4959,6 +5074,11 @@ function renderEscuelasTabla(){
     return;
   }
 
+  const totalPaginasEsc = Math.max(1, Math.ceil(filas.length / ESCUELAS_POR_PAGINA));
+  if(escuelaPaginaActual > totalPaginasEsc) escuelaPaginaActual = totalPaginasEsc;
+  const startIdxEsc = (escuelaPaginaActual - 1) * ESCUELAS_POR_PAGINA;
+  const pageFilas = filas.slice(startIdxEsc, startIdxEsc + ESCUELAS_POR_PAGINA);
+
   wrap.innerHTML = `
     <table>
       <thead>
@@ -4972,7 +5092,7 @@ function renderEscuelasTabla(){
         </tr>
       </thead>
       <tbody>
-        ${filas.map(e => `
+        ${pageFilas.map(e => `
           <tr>
             <td class="mono" style="font-weight:700;">${escapeHtml(e.id_escuela || '—')}</td>
             <td>${escapeHtml(e.nombre || '—')}</td>
@@ -4991,7 +5111,12 @@ function renderEscuelasTabla(){
             </td>
           </tr>`).join('')}
       </tbody>
-    </table>`;
+    </table>
+    <div class="pagination-bar">
+      <div class="pagination-info">Mostrando ${startIdxEsc + 1}–${Math.min(startIdxEsc + ESCUELAS_POR_PAGINA, filas.length)} de ${filas.length} escuela(s)</div>
+      <div class="pagination-controls" id="escuelasPaginationControls"></div>
+    </div>`;
+  renderEscuelasPaginationControls(totalPaginasEsc);
 
   wrap.querySelectorAll('[data-escuela-editar]').forEach(btn => {
     btn.addEventListener('click', () => abrirEscuelaModal(Number(btn.dataset.escuelaEditar)));
@@ -5125,7 +5250,44 @@ document.getElementById('escuelaGuardarBtn')?.addEventListener('click', guardarE
 document.getElementById('escuelaModalOverlay')?.addEventListener('click', (ev) => {
   if(ev.target === document.getElementById('escuelaModalOverlay')) cerrarEscuelaModal();
 });
-document.getElementById('escuelaSearch')?.addEventListener('input', renderEscuelasTabla);
+function renderEscuelasPaginationControls(totalPaginas){
+  const wrap = document.getElementById('escuelasPaginationControls');
+  if(!wrap || totalPaginas <= 1) return;
+
+  const pages = [];
+  const cur = escuelaPaginaActual;
+  pages.push(1);
+  if(cur > 3) pages.push('…');
+  for(let p = Math.max(2, cur-1); p <= Math.min(totalPaginas-1, cur+1); p++) pages.push(p);
+  if(cur < totalPaginas - 2) pages.push('…');
+  if(totalPaginas > 1) pages.push(totalPaginas);
+
+  const btnHtml = (label, page, disabled, active) => `
+    <button class="page-btn ${active ? 'active' : ''}" ${disabled ? 'disabled' : ''} data-page="${page}">${label}</button>
+  `;
+
+  let html = '';
+  html += btnHtml('‹', cur - 1, cur === 1, false);
+  pages.forEach(p => {
+    if(p === '…'){
+      html += `<span class="page-ellipsis">…</span>`;
+    } else {
+      html += btnHtml(p, p, false, p === cur);
+    }
+  });
+  html += btnHtml('›', cur + 1, cur === totalPaginas, false);
+
+  wrap.innerHTML = html;
+
+  wrap.querySelectorAll('.page-btn:not([disabled])').forEach(btn => {
+    btn.addEventListener('click', () => {
+      escuelaPaginaActual = parseInt(btn.dataset.page, 10);
+      renderEscuelasTabla();
+    });
+  });
+}
+
+document.getElementById('escuelaSearch')?.addEventListener('input', () => { escuelaPaginaActual = 1; renderEscuelasTabla(); });
 
 // ============================================================
 // CREACIÓN DE CASO UDP DESDE PLANTILLA

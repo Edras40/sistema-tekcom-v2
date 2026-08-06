@@ -452,10 +452,11 @@ function recalcCasoTiempos(){
     document.getElementById('c_mma').value = '';
   }
 
-  // Fecha Validación Movistar = Resolución (es el cierre del caso).
-  // Se mantiene sincronizada automáticamente al cambiar la Resolución.
+  // Fecha Validación Movistar: por defecto igual a Resolución (es el cierre del caso),
+  // pero solo se auto-llena si está vacía — ahora es editable a mano, así que si el
+  // operador ya puso o cambió un valor propio, no se le sobrescribe.
   const resolucionVal = document.getElementById('c_resolucion').value;
-  if(resolucionVal) document.getElementById('c_up_enlace').value = resolucionVal;
+  if(resolucionVal && !document.getElementById('c_up_enlace').value) document.getElementById('c_up_enlace').value = resolucionVal;
 
   // Tiempo de Validación Movistar = Fecha Validación Movistar - Solicitud | Validación-Movistar
   const sVal = document.getElementById('c_s_validacion').value;
@@ -1374,10 +1375,9 @@ function renderDashboard(){
     if(min <= SLA_UMBRAL) dentro++; else fuera++;
   });
   const total = dentro + fuera;
-  const pctDentro = total > 0 ? Math.round((dentro/total)*100) : 0;
-  const pctFuera  = total > 0 ? Math.round((fuera/total)*100)  : 0;
-  document.getElementById('dashDentroSla').textContent = total > 0 ? `${dentro} (${pctDentro}%)` : '—';
-  document.getElementById('dashFueraSla').textContent  = total > 0 ? `${fuera} (${pctFuera}%)`  : '—';
+  document.getElementById('dashDentroSla').textContent = total > 0 ? `${dentro}` : '—';
+  document.getElementById('dashFueraSla').textContent  = total > 0 ? `${fuera}`  : '—';
+  renderBarraSlaEstado(datos, SLA_UMBRAL);
 
   // Gráficos — con timeout para que el DOM esté visible y los canvas tengan dimensiones
   setTimeout(() => {
@@ -1547,11 +1547,13 @@ function renderGraficoZona(datos){
       const ctx=canvas.getContext('2d'); ctx.scale(dpr,dpr);
       const cx=W/2; const cy=H/2; const r=Math.min(cx,cy)-16; const inner=r*0.55;
       let angle=-Math.PI/2;
-      zonasOrdenadas.forEach(([,count],i) => {
+      const sectores = []; // guarda los límites de ángulo de cada porción, para detectar el clic
+      zonasOrdenadas.forEach(([zona,count],i) => {
         const slice=(count/totalZona)*Math.PI*2;
         ctx.beginPath(); ctx.moveTo(cx,cy); ctx.arc(cx,cy,r,angle,angle+slice); ctx.closePath();
         ctx.fillStyle=ZONA_COLORS[i%ZONA_COLORS.length]; ctx.fill();
         ctx.strokeStyle=document.body.classList.contains('light')?'#fff':'#141822'; ctx.lineWidth=2; ctx.stroke();
+        sectores.push({ zona, desde: angle, hasta: angle+slice });
         angle+=slice;
       });
       ctx.beginPath(); ctx.arc(cx,cy,inner,0,Math.PI*2);
@@ -1559,6 +1561,20 @@ function renderGraficoZona(datos){
       const isLight=document.body.classList.contains('light');
       ctx.fillStyle=isLight?'#1B1F2D':'#E7E9F2'; ctx.font=`bold ${Math.round(r*0.28)}px Space Grotesk,sans-serif`; ctx.textAlign='center'; ctx.textBaseline='middle';
       ctx.fillText(totalZona,cx,cy-8); ctx.font='11px Inter,sans-serif'; ctx.fillStyle=isLight?'#666D85':'#8A8FA3'; ctx.fillText('Total',cx,cy+12);
+
+      canvas.style.cursor = 'pointer';
+      canvas.onclick = (ev) => {
+        const rect = canvas.getBoundingClientRect();
+        const x = ev.clientX - rect.left - cx;
+        const y = ev.clientY - rect.top - cy;
+        const dist = Math.sqrt(x*x + y*y);
+        if(dist < inner || dist > r) return; // clic fuera de la dona (centro o afuera)
+        // Se dibuja empezando en -90° (arriba) en sentido horario; se desplaza todo +90°
+        // para comparar en el mismo rango [0, 2π) sin saltos.
+        const clickAng = (Math.atan2(y, x) + Math.PI/2 + Math.PI*2) % (Math.PI*2);
+        const sector = sectores.find(s => clickAng >= (s.desde + Math.PI/2) && clickAng < (s.hasta + Math.PI/2));
+        if(sector) abrirModalCasosDashboard(`Cuadrilla: ${sector.zona}`, datos.filter(c => zonaGeneral(c.zona) === sector.zona));
+      };
     });
   } else {
     const slaData = calcSlaPromPorGrupo(datos.map(c => ({ ...c, zona: zonaGeneral(c.zona) })), 'zona');
@@ -1603,6 +1619,36 @@ function nombreYApellido(nombreCompleto){
   const partes = (nombreCompleto || '').trim().split(/\s+/).filter(Boolean);
   if(partes.length <= 1) return nombreCompleto || '';
   return `${partes[0]} ${partes[partes.length - 1]}`;
+}
+
+// ---- Barra Dentro / Fuera del SLA ----
+function renderBarraSlaEstado(datos, umbralMin){
+  const wrap = document.getElementById('dashBarraSlaEstado');
+  if(!wrap) return;
+  const dentroLista = [];
+  const fueraLista = [];
+  datos.forEach(c => {
+    const min = hhmmToMinutesDash(c.sla);
+    if(min === null || min < 0) return;
+    if(min <= umbralMin) dentroLista.push(c); else fueraLista.push(c);
+  });
+  const total = dentroLista.length + fueraLista.length;
+  if(!total){ wrap.innerHTML = '<div class="material-empty">Sin datos de SLA</div>'; return; }
+  const pctDentro = Math.round((dentroLista.length/total)*100);
+  const pctFuera = 100 - pctDentro;
+
+  wrap.innerHTML = `
+    <div style="display:flex; height:56px; border-radius:10px; overflow:hidden; box-shadow:inset 0 0 0 1px var(--border);">
+      ${pctDentro > 0 ? `<div data-sla-estado="dentro" style="cursor:pointer; width:${pctDentro}%; background:#16A34A; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:700; font-size:15px; transition:width .3s;">${pctDentro}%</div>` : ''}
+      ${pctFuera > 0 ? `<div data-sla-estado="fuera" style="cursor:pointer; width:${pctFuera}%; background:#DC2626; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:700; font-size:15px; transition:width .3s;">${pctFuera}%</div>` : ''}
+    </div>`;
+
+  wrap.querySelectorAll('[data-sla-estado="dentro"]').forEach(el => {
+    el.addEventListener('click', () => abrirModalCasosDashboard('Dentro del SLA', dentroLista));
+  });
+  wrap.querySelectorAll('[data-sla-estado="fuera"]').forEach(el => {
+    el.addEventListener('click', () => abrirModalCasosDashboard('Fuera del SLA', fueraLista));
+  });
 }
 
 // ---- Barras Team Líder ----
@@ -1692,11 +1738,13 @@ function renderGraficoClasificacion(datos){
     const ctx = canvas.getContext('2d'); ctx.scale(dpr,dpr);
     const cx=W/2; const cy=H/2; const r=Math.min(cx,cy)-10; const inner=r*0.55;
     let angle=-Math.PI/2;
-    entradas.forEach(([,count],i) => {
+    const sectores = [];
+    entradas.forEach(([clasificacion,count],i) => {
       const slice=(count/total)*Math.PI*2;
       ctx.beginPath(); ctx.moveTo(cx,cy); ctx.arc(cx,cy,r,angle,angle+slice); ctx.closePath();
       ctx.fillStyle=CLASIFICACION_COLORS[i%CLASIFICACION_COLORS.length]; ctx.fill();
       ctx.strokeStyle=document.body.classList.contains('light')?'#fff':'#141822'; ctx.lineWidth=2; ctx.stroke();
+      sectores.push({ clasificacion, desde: angle, hasta: angle+slice });
       angle+=slice;
     });
     ctx.beginPath(); ctx.arc(cx,cy,inner,0,Math.PI*2);
@@ -1704,6 +1752,18 @@ function renderGraficoClasificacion(datos){
     const isLight=document.body.classList.contains('light');
     ctx.fillStyle=isLight?'#1B1F2D':'#E7E9F2'; ctx.font=`bold ${Math.round(r*0.28)}px Space Grotesk,sans-serif`; ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillText(total,cx,cy-8); ctx.font='11px Inter,sans-serif'; ctx.fillStyle=isLight?'#666D85':'#8A8FA3'; ctx.fillText('Total',cx,cy+12);
+
+    canvas.style.cursor = 'pointer';
+    canvas.onclick = (ev) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = ev.clientX - rect.left - cx;
+      const y = ev.clientY - rect.top - cy;
+      const dist = Math.sqrt(x*x + y*y);
+      if(dist < inner || dist > r) return;
+      const clickAng = (Math.atan2(y, x) + Math.PI/2 + Math.PI*2) % (Math.PI*2);
+      const sector = sectores.find(s => clickAng >= (s.desde + Math.PI/2) && clickAng < (s.hasta + Math.PI/2));
+      if(sector) abrirModalCasosDashboard(`Clasificación: ${sector.clasificacion}`, datos.filter(c => c.clasificacion === sector.clasificacion));
+    };
   });
 }
 
@@ -1742,11 +1802,13 @@ function renderGraficoCausaRaiz(datos){
     const ctx = canvas.getContext('2d'); ctx.scale(dpr,dpr);
     const cx=W/2; const cy=H/2; const r=Math.min(cx,cy)-10; const inner=r*0.55;
     let angle=-Math.PI/2;
-    top10.forEach(([,count],i) => {
+    const sectores = [];
+    top10.forEach(([causa,count],i) => {
       const slice=(count/total)*Math.PI*2;
       ctx.beginPath(); ctx.moveTo(cx,cy); ctx.arc(cx,cy,r,angle,angle+slice); ctx.closePath();
       ctx.fillStyle=CAUSA_RAIZ_COLORS[i%CAUSA_RAIZ_COLORS.length]; ctx.fill();
       ctx.strokeStyle=document.body.classList.contains('light')?'#fff':'#141822'; ctx.lineWidth=2; ctx.stroke();
+      sectores.push({ causa, desde: angle, hasta: angle+slice });
       angle+=slice;
     });
     ctx.beginPath(); ctx.arc(cx,cy,inner,0,Math.PI*2);
@@ -1754,6 +1816,18 @@ function renderGraficoCausaRaiz(datos){
     const isLight=document.body.classList.contains('light');
     ctx.fillStyle=isLight?'#1B1F2D':'#E7E9F2'; ctx.font=`bold ${Math.round(r*0.28)}px Space Grotesk,sans-serif`; ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillText(total,cx,cy-8); ctx.font='11px Inter,sans-serif'; ctx.fillStyle=isLight?'#666D85':'#8A8FA3'; ctx.fillText('Total',cx,cy+12);
+
+    canvas.style.cursor = 'pointer';
+    canvas.onclick = (ev) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = ev.clientX - rect.left - cx;
+      const y = ev.clientY - rect.top - cy;
+      const dist = Math.sqrt(x*x + y*y);
+      if(dist < inner || dist > r) return;
+      const clickAng = (Math.atan2(y, x) + Math.PI/2 + Math.PI*2) % (Math.PI*2);
+      const sector = sectores.find(s => clickAng >= (s.desde + Math.PI/2) && clickAng < (s.hasta + Math.PI/2));
+      if(sector) abrirModalCasosDashboard(`Causa Raíz: ${sector.causa}`, datos.filter(c => c.sub_categoria === sector.causa));
+    };
   });
 }
 

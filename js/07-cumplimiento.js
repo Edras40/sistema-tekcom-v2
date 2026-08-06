@@ -1864,6 +1864,14 @@ function opkLimpiarEstadoDeSesion(){
 function opkMostrarSesionEnSidebar(usuario){
   const sbBottom = document.querySelector('.sb-bottom');
   if(!sbBottom || document.getElementById('opkSesionRow')) return;
+
+  const enLineaRow = document.createElement('div');
+  enLineaRow.id = 'opkEnLineaRow';
+  enLineaRow.style.cssText = 'display:flex; align-items:center; gap:8px; padding:9px 12px; border-radius:9px; color:var(--text-dim); font-size:12.5px; font-weight:500; cursor:pointer;';
+  enLineaRow.innerHTML = `<span style="width:8px;height:8px;border-radius:50%;background:#16A34A;flex-shrink:0;"></span><span class="nav-label" id="opkEnLineaTexto">En línea: —</span>`;
+  sbBottom.appendChild(enLineaRow);
+  enLineaRow.addEventListener('click', () => opkAbrirModalEnLinea());
+
   const row = document.createElement('div');
   row.id = 'opkSesionRow';
   row.style.cssText = 'display:flex; align-items:center; justify-content:space-between; padding:9px 12px; border-radius:9px; color:var(--text-dim); font-size:13px; font-weight:500; margin-top:4px;';
@@ -1878,6 +1886,101 @@ function opkMostrarSesionEnSidebar(usuario){
     opkLimpiarEstadoDeSesion();
     if(token){ try{ await opkAuthLogout(token); }catch(e){} }
     location.reload();
+  });
+
+  if(typeof presenciaIniciar === 'function') presenciaIniciar();
+}
+
+// ============================================================
+// USUARIOS EN LÍNEA
+// Cada sesión activa "avisa" cada 30s que sigue conectada
+// (heartbeat). Se considera en línea a cualquier sesión que
+// haya avisado en los últimos 90 segundos.
+// ============================================================
+const PRESENCIA_REST_URL = `${SUPABASE_URL}/rest/v1/presencia_usuarios`;
+const PRESENCIA_SESSION_ID = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+let presenciaHeartbeatTimer = null;
+
+async function presenciaEnviarHeartbeat(){
+  if(typeof opkSesionActual === 'undefined' || !opkSesionActual) return;
+  const usuario = opkSesionActual.usuario || '';
+  const nombre = opkSesionActual.nombre || usuario;
+  if(!usuario) return;
+  try{
+    await fetch(PRESENCIA_REST_URL, {
+      method: 'POST',
+      headers: { ...sbHeaders, 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify([{ session_id: PRESENCIA_SESSION_ID, usuario, nombre, ultimo_visto: new Date().toISOString() }])
+    });
+  }catch(e){ console.error('No se pudo actualizar presencia:', e); }
+  opkActualizarContadorEnLinea();
+}
+
+function presenciaIniciar(){
+  presenciaEnviarHeartbeat();
+  if(presenciaHeartbeatTimer) clearInterval(presenciaHeartbeatTimer);
+  presenciaHeartbeatTimer = setInterval(presenciaEnviarHeartbeat, 30000);
+}
+
+async function presenciaObtenerEnLinea(){
+  const desde = new Date(Date.now() - 90 * 1000).toISOString();
+  try{
+    const res = await fetch(`${PRESENCIA_REST_URL}?ultimo_visto=gte.${encodeURIComponent(desde)}&select=usuario,nombre,session_id&order=nombre.asc`, { headers: sbHeaders });
+    if(!res.ok) return [];
+    return await res.json();
+  }catch(e){ return []; }
+}
+
+async function opkActualizarContadorEnLinea(){
+  const lista = await presenciaObtenerEnLinea();
+  const porUsuario = {};
+  lista.forEach(s => {
+    const key = s.usuario || s.nombre || '—';
+    if(!porUsuario[key]) porUsuario[key] = { nombre: s.nombre || s.usuario, sesiones: 0 };
+    porUsuario[key].sesiones++;
+  });
+  const totalUsuarios = Object.keys(porUsuario).length;
+  const texto = document.getElementById('opkEnLineaTexto');
+  if(texto) texto.textContent = `En línea: ${totalUsuarios}`;
+  const textoInicio = document.getElementById('inicioEnLineaTexto');
+  if(textoInicio) textoInicio.textContent = `En línea: ${totalUsuarios}`;
+  return porUsuario;
+}
+
+document.getElementById('inicioEnLineaBtn')?.addEventListener('click', () => opkAbrirModalEnLinea());
+
+function opkAbrirModalEnLinea(){
+  presenciaObtenerEnLinea().then(lista => {
+    const porUsuario = {};
+    lista.forEach(s => {
+      const key = s.usuario || s.nombre || '—';
+      if(!porUsuario[key]) porUsuario[key] = { nombre: s.nombre || s.usuario, sesiones: 0 };
+      porUsuario[key].sesiones++;
+    });
+    const entradas = Object.values(porUsuario);
+    const filas = entradas.length
+      ? entradas.map(u => `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
+          <span style="width:8px;height:8px;border-radius:50%;background:#16A34A;flex-shrink:0;"></span>
+          <span style="flex:1;font-size:13px;">${escapeHtml(u.nombre)}</span>
+          ${u.sesiones > 1 ? `<span style="font-size:11.5px;color:var(--text-dim);">${u.sesiones} sesiones</span>` : ''}
+        </div>`).join('')
+      : '<div class="material-empty">Nadie más está en línea ahora mismo.</div>';
+    const mensaje = `<div style="min-width:260px;">${filas}</div>`;
+    if(typeof plMostrarErrorCentro === 'function'){
+      // Reutiliza el modal genérico de mensaje central si existe, si no, alerta simple.
+    }
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    overlay.innerHTML = `<div style="background:var(--surface);border-radius:12px;padding:20px;max-width:340px;width:90%;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <div style="font-weight:700;font-size:15px;">En línea ahora</div>
+        <button type="button" id="opkCerrarModalEnLinea" style="color:var(--text-dim);">✕</button>
+      </div>
+      ${mensaje}
+    </div>`;
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', (e) => { if(e.target === overlay) overlay.remove(); });
+    document.getElementById('opkCerrarModalEnLinea').addEventListener('click', () => overlay.remove());
   });
 }
 
