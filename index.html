@@ -327,6 +327,12 @@
         <span style="font-size:12.5px; color:#94A3B8;">Operador de turno</span>
         <select id="inicioOperadorTurno" style="min-width:220px; padding:7px 10px; border-radius:8px;
                 background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.18); color:#F1F5F9;"></select>
+        <span style="width:14px;"></span>
+        <button type="button" id="inicioEnLineaBtn" style="display:flex; align-items:center; gap:7px; padding:7px 12px; border-radius:8px;
+                background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.18); color:#F1F5F9; font-size:12.5px; cursor:pointer;">
+          <span style="width:8px;height:8px;border-radius:50%;background:#16A34A;flex-shrink:0;"></span>
+          <span id="inicioEnLineaTexto">En línea: —</span>
+        </button>
       </div>
       <button type="button" class="btn btn-primary" id="btnPlantillasInicio">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px; height:16px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
@@ -1531,6 +1537,10 @@
           <div class="stat-num" id="dashFueraSla" style="color:#DC2626;">—</div>
         </div>
 
+      </div>
+
+      <div class="panel" style="padding:20px; margin-bottom:16px;">
+        <div id="dashBarraSlaEstado"></div>
       </div>
 
       <div style="display:grid; grid-template-columns:1.4fr 1fr 1fr; gap:16px; margin-bottom:16px; align-items:stretch;">
@@ -3634,8 +3644,8 @@
             <div class="form-field"><label>Solicitud | Validación-Movistar</label><input type="datetime-local" id="c_s_validacion"></div>
             <div class="form-field calc-field">
               <label>Fecha Validación Movistar</label>
-              <input type="datetime-local" id="c_up_enlace" readonly>
-              <div class="calc-hint">Igual a Resolución</div>
+              <input type="datetime-local" id="c_up_enlace">
+              <div class="calc-hint">Por defecto, igual a Resolución. Editable manualmente.</div>
             </div>
             <div class="form-field calc-field">
               <label>Tiempo de Validación Movistar</label>
