@@ -562,7 +562,7 @@ const UDP_MATERIALES_CATALOGO = [
   ['Argolla','argolla'],['Bandeja','bandeja'],['Firewall','firewall'],['Caja Liu','caja_liu'],
 ];
 
-const SUB_CATEGORIA_OPCIONES = [
+let SUB_CATEGORIA_OPCIONES = [
   'Mordedura de Ardilla','Mordedura de Raton','Mordedura de Hormiga','Mordedura de Gusano',
   'Hilo quebrado en cierre','Hilo quebrado en cierre de botella','Por camion','Por Maquinaria',
   'Accidente Vial','Por Podas','Por Tenanza','Por Posteria','Caida de Arbol','Derrumbe',
@@ -627,7 +627,8 @@ const views = {
   cable: { title:'', sub:'' },
   actividades: { title:'Actividades Diarias', sub:'' },
   cumplimiento: { title:'Cumplimiento de Visitas', sub:'' },
-  plantillas: { title:'Plantillas de Avance', sub:'' }
+  plantillas: { title:'Plantillas de Avance', sub:'' },
+  catalogos: { title:'Catálogos', sub:'Configura las listas desplegables del sistema' }
 };
 
 let sitiosLoaded = false;
@@ -716,6 +717,12 @@ document.querySelectorAll('.nav-item').forEach(item => {
     }
     if(v === 'plantillas'){
       plCargarLista();
+    }
+    if(v === 'catalogos'){
+      fetchCatalogos(true).then(() => {
+        if(typeof renderCatalogosTabs === 'function') renderCatalogosTabs();
+        if(typeof renderCatalogoListaActiva === 'function') renderCatalogoListaActiva();
+      });
     }
   });
 });

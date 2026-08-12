@@ -669,8 +669,9 @@ async function plGuardarYCrearCaso(){
     return;
   }
   for(let i = 0; i < plAvances.length - 1; i++){
-    if((plAvances[i].estado === 'pausado' || plAvances[i].estado === 'programado') && plAvances[i + 1].estado !== 'despausado'){
-      showToast('Todo avance "Pausado" o "Programado" debe ir seguido de un avance "Retomado" antes del siguiente.', 'error');
+    if((plAvances[i].estado === 'pausado' || plAvances[i].estado === 'programado')
+       && plAvances[i + 1].estado !== 'despausado' && plAvances[i + 1].estado !== plAvances[i].estado){
+      showToast('Todo avance "Pausado" o "Programado" debe ir seguido de un avance "Retomado" antes de cambiar a otro estatus.', 'error');
       return;
     }
   }
@@ -1970,9 +1971,19 @@ function plTiempoTranscurrido(fecha, hora){
 function plDuracionPausaHtml(avances, indiceOriginal){
   if(indiceOriginal <= 0) return '';
   const actual = avances[indiceOriginal];
-  const anterior = avances[indiceOriginal - 1];
-  if(!actual || !anterior) return '';
-  if(actual.estado !== 'despausado' || (anterior.estado !== 'pausado' && anterior.estado !== 'programado')) return '';
+  const inmediatoAnterior = avances[indiceOriginal - 1];
+  if(!actual || !inmediatoAnterior) return '';
+  if(actual.estado !== 'despausado' || (inmediatoAnterior.estado !== 'pausado' && inmediatoAnterior.estado !== 'programado')) return '';
+
+  // Si hubo varias pausas seguidas (Pausado, Pausado, Programado...) sin ningún
+  // "Retomado" entre medio, la pausa real empezó en la PRIMERA de esa racha,
+  // no en la última: hay que retroceder hasta encontrarla.
+  let idxInicio = indiceOriginal - 1;
+  while(idxInicio > 0 && (avances[idxInicio - 1].estado === 'pausado' || avances[idxInicio - 1].estado === 'programado')){
+    idxInicio--;
+  }
+  const anterior = avances[idxInicio];
+
   const inicio = new Date(`${anterior.fecha}T${plHHMM(anterior.hora)}:00`);
   const fin = new Date(`${actual.fecha}T${plHHMM(actual.hora)}:00`);
   if(isNaN(inicio.getTime()) || isNaN(fin.getTime())) return '';
@@ -2584,14 +2595,16 @@ function plActualizarEstadoFormularioAvance(){
   if(avisoFinalizado) avisoFinalizado.style.display = 'none';
 
   if(estaPausado && plEditandoIndiceActual === null){
-    selectEstado.value = 'despausado';
-    Array.from(selectEstado.options).forEach(opt => { opt.disabled = opt.value !== 'despausado'; });
+    Array.from(selectEstado.options).forEach(opt => { opt.disabled = opt.value !== 'despausado' && opt.value !== ultimoAvance.estado; });
+    if(selectEstado.value !== 'despausado' && selectEstado.value !== ultimoAvance.estado){
+      selectEstado.value = 'despausado';
+    }
     if(avisoPausado){
       avisoPausado.style.display = '';
       const esProgramado = ultimoAvance.estado === 'programado';
       avisoPausado.innerHTML = esProgramado
-        ? '⏸ Este caso está <strong>programado</strong>. Debes registrar el avance de "Retomado" antes de poder agregar cualquier otro tipo de avance.'
-        : '⏸ Este caso está <strong>pausado</strong>. Debes registrar el avance de "Retomado" antes de poder agregar cualquier otro tipo de avance.';
+        ? '⏸ Este caso está <strong>programado</strong>. Puedes agregar otra nota como "Programado" o registrar el avance de "Retomado" para continuar.'
+        : '⏸ Este caso está <strong>pausado</strong>. Puedes agregar otra nota como "Pausado" o registrar el avance de "Retomado" para continuar.';
     }
   } else {
     Array.from(selectEstado.options).forEach(opt => { opt.disabled = false; });
@@ -2672,40 +2685,35 @@ async function plActualizarEstadoCasoVinculado(modulo, casoId, estado, materiale
 
 // Suma la duración total de todas las pausas/programados de la bitácora (cada tramo
 // Pausado/Programado → Retomado), para llenar el campo "Intervalo" en Casos Movistar.
-function plCalcularIntervaloPausas(avances){
-  if(!avances || avances.length < 2) return null;
-  let totalMinutos = 0;
-  for(let i = 0; i < avances.length - 1; i++){
-    const actual = avances[i];
-    const siguiente = avances[i + 1];
-    if((actual.estado === 'pausado' || actual.estado === 'programado') && siguiente.estado === 'despausado'){
-      const inicio = new Date(`${actual.fecha}T${plHHMM(actual.hora)}:00`);
-      const fin = new Date(`${siguiente.fecha}T${plHHMM(siguiente.hora)}:00`);
-      if(!isNaN(inicio.getTime()) && !isNaN(fin.getTime())){
-        const mins = (fin.getTime() - inicio.getTime()) / 60000;
-        if(mins > 0) totalMinutos += mins;
-      }
-    }
-  }
-  return totalMinutos > 0 ? plFormatearDuracion(totalMinutos) : null;
-}
-
+// Si hay varias pausas seguidas (Pausado, Pausado, Programado...) sin ningún "Retomado"
+// entre medio, se cuenta un solo tramo desde la PRIMERA de esa racha hasta el Retomado,
+// no un tramo por cada pausa individual.
 function plCalcularIntervaloPausasMinutos(avances){
   if(!avances || avances.length < 2) return 0;
   let totalMinutos = 0;
-  for(let i = 0; i < avances.length - 1; i++){
-    const actual = avances[i];
-    const siguiente = avances[i + 1];
-    if((actual.estado === 'pausado' || actual.estado === 'programado') && siguiente.estado === 'despausado'){
-      const inicio = new Date(`${actual.fecha}T${plHHMM(actual.hora)}:00`);
-      const fin = new Date(`${siguiente.fecha}T${plHHMM(siguiente.hora)}:00`);
+  let inicioPausa = null; // avance donde empezó la racha de pausa actual
+  for(let i = 0; i < avances.length; i++){
+    const av = avances[i];
+    if(av.estado === 'pausado' || av.estado === 'programado'){
+      if(!inicioPausa) inicioPausa = av;
+    } else if(av.estado === 'despausado' && inicioPausa){
+      const inicio = new Date(`${inicioPausa.fecha}T${plHHMM(inicioPausa.hora)}:00`);
+      const fin = new Date(`${av.fecha}T${plHHMM(av.hora)}:00`);
       if(!isNaN(inicio.getTime()) && !isNaN(fin.getTime())){
         const mins = (fin.getTime() - inicio.getTime()) / 60000;
         if(mins > 0) totalMinutos += mins;
       }
+      inicioPausa = null;
+    } else {
+      inicioPausa = null;
     }
   }
   return totalMinutos;
+}
+
+function plCalcularIntervaloPausas(avances){
+  const totalMinutos = plCalcularIntervaloPausasMinutos(avances);
+  return totalMinutos > 0 ? plFormatearDuracion(totalMinutos) : null;
 }
 
 // Resumen corto (máx. 3 líneas) de la plantilla para el campo Observación de Casos Movistar.
@@ -3364,8 +3372,13 @@ document.getElementById('plDetalleGuardarAvanceBtn').addEventListener('click', a
   const avancesPrevios = p.avances || [];
   if(!estabaEditando){
     const ultimoAvance = avancesPrevios[avancesPrevios.length - 1];
-    if(ultimoAvance && (ultimoAvance.estado === 'pausado' || ultimoAvance.estado === 'programado') && estado !== 'despausado'){
-      showToast('Este caso está pausado/programado. Primero debes agregar un avance de tipo "Retomado" antes de continuar.', 'error');
+    // Mientras el caso está Pausado/Programado, solo se exige "Retomado" antes de
+    // cambiar a otro tipo de avance distinto. Se permite seguir agregando notas de
+    // seguimiento con el MISMO estatus (ej. otro "Pausado" mientras ya está pausado),
+    // sin necesidad de retomarlo primero.
+    if(ultimoAvance && (ultimoAvance.estado === 'pausado' || ultimoAvance.estado === 'programado')
+       && estado !== 'despausado' && estado !== ultimoAvance.estado){
+      showToast('Este caso está pausado/programado. Primero debes agregar un avance de tipo "Retomado" antes de cambiar a otro estatus.', 'error');
       return;
     }
   }
@@ -4878,6 +4891,7 @@ function opkIniciarSesion(usuario){
   opkObservarRestriccionesEdicion();
   if(typeof plCargarLista === 'function') plCargarLista();
   if(typeof cargarOperadorTurnoDesdeDB === 'function') cargarOperadorTurnoDesdeDB();
+  if(typeof fetchCatalogos === 'function') fetchCatalogos();
 }
 
 document.getElementById('loginBtn').addEventListener('click', async () => {

@@ -1776,6 +1776,10 @@ function opkAplicarPermisosUI(usuario){
   const btnGestion = document.getElementById('btnGestionUsuarios');
   if(btnGestion) btnGestion.style.display = esAdmin ? '' : 'none';
 
+  // Catálogos (listas desplegables del sistema): solo administradores
+  const navCatalogos = document.getElementById('navItemCatalogos');
+  if(navCatalogos) navCatalogos.style.display = esAdmin ? '' : 'none';
+
   let vistaActivaPermitida = true;
 
   OPK_PESTANAS.forEach(tab => {
