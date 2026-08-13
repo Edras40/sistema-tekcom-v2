@@ -744,6 +744,26 @@ async function plGuardarYCrearCaso(){
 
     // 2) Crear el caso en el módulo correspondiente
     const escalonamientoIso = plHHMMaISO(ticketFecha, ticketHora);
+
+    if(estadoTag === 'finalizado' && ['casos', 'hyve', 'cable'].includes(modulo)){
+      // Si la plantilla nace ya Finalizada, se usa el MISMO camino completo que cuando se
+      // finaliza más tarde desde la bitácora: llena causa, materiales, coordenadas,
+      // validación, SLA, etc. — no solo los campos básicos.
+      const materialesFinales = (plAvances[plAvances.length - 1] && plAvances[plAvances.length - 1].materiales) || null;
+      if(modulo === 'casos') await plCrearCasoMovistarDesdePlantilla(plantillaCreada, materialesFinales);
+      else if(modulo === 'hyve') await plCrearCasoHyveDesdePlantilla(plantillaCreada, materialesFinales);
+      else if(modulo === 'cable') await plCrearCasoCableDesdePlantilla(plantillaCreada, materialesFinales);
+
+      showToast('Caso creado correctamente a partir de la plantilla');
+      plCerrarModal();
+
+      if(modulo === 'casos' && typeof fetchCasos === 'function') await fetchCasos();
+      if(modulo === 'hyve' && typeof fetchHyve === 'function') await fetchHyve();
+      if(modulo === 'cable' && typeof fetchCable === 'function') await fetchCable();
+
+      return;
+    }
+
     const mapEstadoInicial = {
       casos: { finalizado:'Finalizada', pausado:'Pausado', escalado:'En Proceso', abierto:'Pendiente' },
       hyve:  { finalizado:'Finalizado', pausado:'Pausado', escalado:'En Proceso', abierto:'Pendiente' },
@@ -864,7 +884,6 @@ async function plCargarLista(){
     const res = await fetch(`${PLANTILLA_REST_URL}?select=*&order=created_at.desc`, { headers: sbHeaders });
     if(!res.ok) throw new Error('Error al cargar');
     plListaCache = await res.json();
-    await plLimpiarPlantillasAntiguas();
     const tabActiva = document.querySelector('.pl-tab-proyecto.active');
     if(tabActiva && tabActiva.dataset.plTabProyecto === 'estatus'){
       plRenderEstatusLista();
@@ -880,31 +899,6 @@ async function plCargarLista(){
   }
 }
 
-// Mantiene cada proyecto (Movistar/Hyve/Cable Color) con un máximo de 50 plantillas.
-// Al pasar de 50, se eliminan las FINALIZADAS más antiguas (nunca las En Proceso/Pausadas),
-// para no acumular demasiada información.
-async function plLimpiarPlantillasAntiguas(){
-  const LIMITE_POR_PROYECTO = 50;
-  for(const proyecto of ['casos', 'hyve', 'cable']){
-    const delProyecto = plListaCache.filter(p => p.modulo === proyecto);
-    if(delProyecto.length <= LIMITE_POR_PROYECTO) continue;
-
-    const finalizadasOrdenadas = delProyecto
-      .filter(p => plEstadoDePlantilla(p) === 'finalizado')
-      .sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0)); // más viejas primero
-
-    let exceso = delProyecto.length - LIMITE_POR_PROYECTO;
-    const aEliminar = finalizadasOrdenadas.slice(0, exceso).map(p => p.id);
-    if(aEliminar.length === 0) continue;
-
-    try{
-      await fetch(`${PLANTILLA_REST_URL}?id=in.(${aEliminar.join(',')})`, { method:'DELETE', headers: sbHeaders });
-      plListaCache = plListaCache.filter(p => !aEliminar.includes(p.id));
-    }catch(err){
-      console.error('No se pudieron limpiar plantillas antiguas:', err);
-    }
-  }
-}
 
 // ============================================================
 // CRONÓMETRO EN VIVO: para cada ticket "Abierto" cuenta el tiempo
