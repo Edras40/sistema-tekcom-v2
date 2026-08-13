@@ -292,6 +292,73 @@ function recalcUdpTiempos(){
   document.getElementById(id).addEventListener('input', recalcUdpTiempos);
 });
 
+/* ---- Buscador desplegable del catálogo de escuelas para el campo ID ---- */
+const uEscuelaInput = document.getElementById('u_id_externo');
+const uEscuelaResults = document.getElementById('u_escuela_results');
+const uEscuelaHint = document.getElementById('u_escuela_hint');
+
+// El catálogo (allEscuelas) vive en 08-plantillas.js y se carga bajo demanda;
+// lo pedimos aquí para que ya esté disponible al abrir el formulario de UDP.
+function udpAsegurarCatalogoEscuelas(){
+  if(typeof fetchEscuelas !== 'function') return;
+  if(typeof escuelasLoaded !== 'undefined' && escuelasLoaded){ updateUdpEscuelaHint(); return; }
+  Promise.resolve(fetchEscuelas()).then(() => updateUdpEscuelaHint());
+}
+
+function udpEscuelaCatalogo(){
+  return (typeof allEscuelas !== 'undefined' && Array.isArray(allEscuelas)) ? allEscuelas : [];
+}
+
+function updateUdpEscuelaHint(){
+  if(!uEscuelaHint || !uEscuelaInput) return;
+  const val = uEscuelaInput.value.trim();
+  if(!val){ uEscuelaHint.style.display = 'none'; return; }
+  const match = udpEscuelaCatalogo().find(e => String(e.id_escuela || '').toLowerCase() === val.toLowerCase());
+  if(match){
+    uEscuelaHint.textContent = `✓ ${match.nombre}${match.municipio ? ' · ' + match.municipio : ''}`;
+    uEscuelaHint.style.display = 'block';
+  } else {
+    uEscuelaHint.textContent = 'No coincide con ninguna escuela del catálogo (se guardará tal cual)';
+    uEscuelaHint.style.display = 'block';
+  }
+}
+
+if(uEscuelaInput){
+  uEscuelaInput.addEventListener('input', () => {
+    updateUdpEscuelaHint();
+    const term = uEscuelaInput.value.trim().toLowerCase();
+    const catalogo = udpEscuelaCatalogo();
+    if(!term){ uEscuelaResults.classList.remove('show'); uEscuelaResults.innerHTML = ''; return; }
+    const matches = catalogo.filter(e =>
+      String(e.id_escuela || '').toLowerCase().includes(term) || (e.nombre || '').toLowerCase().includes(term)
+    ).slice(0, 20);
+    if(matches.length === 0){
+      uEscuelaResults.innerHTML = `<div class="site-result-empty">${catalogo.length ? 'Sin resultados en el catálogo' : 'Cargando catálogo de escuelas...'}</div>`;
+    } else {
+      uEscuelaResults.innerHTML = matches.map(e => `
+        <div class="site-result-item" data-uescuela-id="${escapeHtml(e.id_escuela)}">
+          <div class="site-result-name">${escapeHtml(e.id_escuela)} — ${escapeHtml(e.nombre)}</div>
+          <div class="site-result-meta">${escapeHtml(e.municipio || '—')} · ${escapeHtml(e.departamento || '—')}</div>
+        </div>
+      `).join('');
+    }
+    uEscuelaResults.classList.add('show');
+  });
+  uEscuelaResults.addEventListener('click', (e) => {
+    const item = e.target.closest('[data-uescuela-id]');
+    if(!item) return;
+    uEscuelaInput.value = item.dataset.uescuelaId;
+    updateUdpEscuelaHint();
+    uEscuelaResults.classList.remove('show');
+    uEscuelaResults.innerHTML = '';
+  });
+  document.addEventListener('click', (e) => {
+    if(!e.target.closest('#u_id_externo') && !e.target.closest('#u_escuela_results')){
+      uEscuelaResults.classList.remove('show');
+    }
+  });
+}
+
 const uTecnicoSearch = document.getElementById('u_tecnico_search');
 const uTecnicoResults = document.getElementById('u_tecnico_results');
 
@@ -436,6 +503,8 @@ function openUdpFormModal(caso){
   setSelectValorTolerante('u_status', caso?.status || (caso ? '' : 'En Proceso'));
   document.getElementById('u_casos').value = caso?.casos || '';
   document.getElementById('u_id_externo').value = caso?.id_externo || '';
+  udpAsegurarCatalogoEscuelas();
+  updateUdpEscuelaHint();
   document.getElementById('u_causa').value = caso ? (caso.causa || '') : 'Corte de Fibra';
   document.getElementById('u_sub_categoria').value = caso?.sub_categoria || '';
   document.getElementById('u_observacion').value = caso?.observacion || '';

@@ -473,6 +473,7 @@ function plLimpiarFormulario(modulo){
   });
   setPlTeamLider(null);
   document.getElementById('pl_tipo_afectacion').value = 'Interurbano';
+  document.getElementById('pl_zona').value = '';
   document.getElementById('pl_ticket_fecha').value = plFechaLocalISO(new Date());
   plAvances = [plNuevaFilaAvance()];
   plRenderAvances();
@@ -545,6 +546,7 @@ function plAbrirEditarEncabezado(id){
   document.getElementById('pl_ticket_fecha').value = p.ticket_fecha || '';
   document.getElementById('pl_ticket_hora').value = p.ticket_hora || '';
   document.getElementById('pl_tipo_afectacion').value = p.tipo_afectacion || 'Interurbano';
+  document.getElementById('pl_zona').value = p.estatus_zona || '';
   document.getElementById('pl_operador_telco').value = p.operador_telco || '';
   document.getElementById('pl_operador_tekcom').value = p.operador_tekcom || '';
   document.getElementById('pl_causa').value = p.causa || '';
@@ -600,6 +602,11 @@ async function plGuardarEdicionEncabezado(){
     showToast('Escribe el No. de Ticket', 'error');
     return;
   }
+  const zonaPlEdit = document.getElementById('pl_zona').value;
+  if(!zonaPlEdit){
+    showToast('Selecciona la Zona (Central, Occidente u Oriente)', 'error');
+    return;
+  }
 
   // Las coordenadas terminan en columnas numéricas del caso. Se validan aquí para que
   // el error salga al capturar y no al finalizar la plantilla.
@@ -617,6 +624,7 @@ async function plGuardarEdicionEncabezado(){
     ticket_fecha: document.getElementById('pl_ticket_fecha').value || null,
     ticket_hora: document.getElementById('pl_ticket_hora').value || null,
     tipo_afectacion: document.getElementById('pl_tipo_afectacion').value || null,
+    estatus_zona: zonaPlEdit,
     operador_telco: document.getElementById('pl_operador_telco').value.trim() || null,
     operador_tekcom: document.getElementById('pl_operador_tekcom').value.trim() || null,
     causa: document.getElementById('pl_causa').value || null,
@@ -668,6 +676,11 @@ async function plGuardarYCrearCaso(){
     showToast('Escribe el No. de Ticket', 'error');
     return;
   }
+  const zonaPl = document.getElementById('pl_zona').value;
+  if(!zonaPl){
+    showToast('Selecciona la Zona (Central, Occidente u Oriente)', 'error');
+    return;
+  }
   for(let i = 0; i < plAvances.length - 1; i++){
     if((plAvances[i].estado === 'pausado' || plAvances[i].estado === 'programado')
        && plAvances[i + 1].estado !== 'despausado' && plAvances[i + 1].estado !== plAvances[i].estado){
@@ -713,6 +726,7 @@ async function plGuardarYCrearCaso(){
       ticket_hora: ticketHora || null,
       no_ticket: noTicket,
       tipo_afectacion: tipoAfectacion || null,
+      estatus_zona: zonaPl,
       operador_telco: document.getElementById('pl_operador_telco').value.trim() || null,
       operador_tekcom: operadorTekcom || null,
       team_lider: document.getElementById('pl_teamlider_name').textContent !== '—' ? document.getElementById('pl_teamlider_name').textContent : null,
@@ -2789,10 +2803,10 @@ async function plCrearCasoMovistarDesdePlantilla(p, materiales){
       casos: p.cliente_sitio || null,
       folio: p.no_ticket || null,
       nombre_del_tecnico: (p.team_lider && p.team_lider !== 'Pendiente Asignar Personal') ? p.team_lider : null,
-      // Antes quedaba fijo en 'En Proceso' aunque la plantilla ya estuviera Finalizada o
-      // Pausada: por eso el caso en Casos Movistar se veía "En Proceso" para siempre, aunque
-      // en Plantillas ya apareciera como Finalizado. Ahora se refleja el estado real.
-      status: ({ finalizado:'Finalizada', pausado:'Pausado', escalado:'En Proceso', abierto:'Pendiente' })[plEstadoDePlantilla(p)] || 'En Proceso',
+      // El caso se crea siempre en "En Proceso": el operador revisa y completa los
+      // campos pendientes (Observación, Departamento/Municipio/Distrito, etc.) y luego
+      // lo pasa a Finalizada manualmente en Casos Movistar.
+      status: 'En Proceso',
       zona: p.estatus_zona || null,
       semana, anos, mes, dia,
       escalonamiento: escalonamientoIso,
@@ -2942,6 +2956,8 @@ async function plCrearCasoHyveDesdePlantilla(p, materiales){
       anos: t.anos,
       mes: t.mes,
       casos: p.cliente_sitio || null,
+      // El caso se crea siempre en "En Proceso": el operador revisa y completa los
+      // campos pendientes y luego lo pasa a Finalizado manualmente en Casos Hyve.
       status: 'En Proceso',
       // Semana ISO deducida del escalonamiento, igual que en Movistar.
       // Se envía como texto porque la columna `wk` es text (igual que en el formulario).
@@ -3045,6 +3061,8 @@ async function plCrearCasoCableDesdePlantilla(p, materiales){
       // La Descripción es el nombre del caso; el detalle completo va en Observación.
       descripcion: p.cliente_sitio || null,
       cuadrilla: (p.team_lider && p.team_lider !== 'Pendiente Asignar Personal') ? p.team_lider : null,
+      // El caso se crea siempre en "En Proceso": el operador revisa y completa los
+      // campos pendientes y luego lo pasa a Finalizada manualmente en Cable Color.
       status: 'En Proceso',
       causa: p.causa || null,
       sub_categoria: p.sub_categoria || null,
@@ -4892,6 +4910,7 @@ function opkIniciarSesion(usuario){
   if(typeof plCargarLista === 'function') plCargarLista();
   if(typeof cargarOperadorTurnoDesdeDB === 'function') cargarOperadorTurnoDesdeDB();
   if(typeof fetchCatalogos === 'function') fetchCatalogos();
+  if(typeof bloqueoTrIniciar === 'function') bloqueoTrIniciar();
 }
 
 document.getElementById('loginBtn').addEventListener('click', async () => {
@@ -5330,6 +5349,8 @@ async function plCrearCasoUdpDesdePlantilla(p, materiales){
       observacion: null,
       // La evidencia fotográfica de la plantilla se copia al caso finalizado.
       imagenes: p.imagenes || null,
+      // El caso se crea siempre en "En Proceso": el operador revisa y completa los
+      // campos pendientes y luego lo pasa a Finalizado manualmente en UDP.
       status: 'En Proceso',
     };
 

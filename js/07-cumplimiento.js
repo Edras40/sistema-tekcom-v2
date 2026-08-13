@@ -2036,6 +2036,7 @@ function opkMostrarLogin(){
   document.body.classList.add('opk-mostrar-login');
   const pass = document.getElementById('loginPassword');
   if(pass) pass.value = '';
+  if(typeof bloqueoTrDetener === 'function') bloqueoTrDetener();
 }
 
 function opkColapsarMenuInicial(){
