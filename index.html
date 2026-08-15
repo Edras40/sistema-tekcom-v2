@@ -3449,7 +3449,7 @@
           <div class="caso-section-title">Información General</div>
           <div class="form-grid">
             <div class="form-field">
-              <label>Clasificación</label>
+              <label>Clasificación *</label>
               <select id="c_clasificacion">
                 <option value="">—</option>
                 <option>Interurbano</option>
@@ -3461,7 +3461,7 @@
               </select>
             </div>
             <div class="form-field">
-              <label>Red</label>
+              <label>Red *</label>
               <select id="c_red">
                 <option value="">—</option>
                 <option>Interurbano FO</option>
@@ -3473,15 +3473,15 @@
               </select>
             </div>
             <div class="form-field">
-              <label>Casos</label>
+              <label>Casos *</label>
               <input type="text" id="c_casos" placeholder="Descripción del caso">
             </div>
             <div class="form-field">
-              <label>Folio</label>
+              <label>Folio *</label>
               <input type="text" id="c_folio" placeholder="Folio del caso">
             </div>
             <div class="form-field full">
-              <label>Nombre del Técnico</label>
+              <label>Nombre del Técnico *</label>
               <div class="site-search-row">
                 <div class="filter-input" style="max-width:none;">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
@@ -3504,7 +3504,7 @@
               </div>
             </div>
             <div class="form-field">
-              <label>Status</label>
+              <label>Status *</label>
               <select id="c_status">
                 <option value="">—</option>
                 <option>Finalizada</option>
@@ -3515,7 +3515,7 @@
               </select>
             </div>
             <div class="form-field">
-              <label>Cuadrilla</label>
+              <label>Cuadrilla *</label>
               <select id="c_zona">
                 <option value="">—</option>
                 <option>Occidente</option>
@@ -3534,25 +3534,25 @@
               </select>
             </div>
             <div class="form-field">
-              <label>Departamento</label>
+              <label>Departamento *</label>
               <select id="c_departamento">
                 <option value="">— Selecciona —</option>
               </select>
             </div>
             <div class="form-field">
-              <label>Municipio</label>
+              <label>Municipio *</label>
               <select id="c_municipio">
                 <option value="">— Selecciona primero el Departamento —</option>
               </select>
             </div>
             <div class="form-field">
-              <label>Distrito</label>
+              <label>Distrito *</label>
               <select id="c_distrito">
                 <option value="">— Selecciona primero el Municipio —</option>
               </select>
             </div>
             <div class="form-field">
-              <label>Causa</label>
+              <label>Causa *</label>
               <select id="c_causa">
                 <option value="">—</option>
                 <option>Corte de Fibra</option>
@@ -3564,7 +3564,7 @@
               </select>
             </div>
             <div class="form-field full">
-              <label>Sub Categoría</label>
+              <label>Sub Categoría *</label>
               <select id="c_sub_categoria"></select>
             </div>
             <div class="form-field">
@@ -3585,15 +3585,15 @@
           <div class="caso-section-title">Fecha</div>
           <div class="form-grid">
             <div class="form-field">
-              <label>Semana</label>
+              <label>Semana *</label>
               <select id="c_semana"></select>
             </div>
             <div class="form-field">
-              <label>Año</label>
+              <label>Año *</label>
               <select id="c_anos"></select>
             </div>
             <div class="form-field">
-              <label>Mes</label>
+              <label>Mes *</label>
               <select id="c_mes">
                 <option value="">—</option>
                 <option>Enero</option><option>Febrero</option><option>Marzo</option>
@@ -3603,7 +3603,7 @@
               </select>
             </div>
             <div class="form-field">
-              <label>Día</label>
+              <label>Día *</label>
               <select id="c_dia"></select>
             </div>
           </div>
@@ -3613,11 +3613,11 @@
           <div class="caso-section-title">Tiempos (cálculo automático)</div>
           <div class="form-grid">
             <div class="form-field">
-              <label>Escalonamiento (fecha y hora)</label>
+              <label>Escalonamiento (fecha y hora) *</label>
               <input type="datetime-local" id="c_escalonamiento">
             </div>
             <div class="form-field">
-              <label>Resolución (fecha y hora)</label>
+              <label>Resolución (fecha y hora) *</label>
               <input type="datetime-local" id="c_resolucion">
             </div>
             <div class="form-field calc-field">
@@ -3626,7 +3626,7 @@
               <div class="calc-hint">Resolución − Escalonamiento</div>
             </div>
             <div class="form-field">
-              <label>SLA (HH:MM)</label>
+              <label>SLA (HH:MM) *</label>
               <input type="text" id="c_sla" placeholder="04:30">
             </div>
             <div class="form-field calc-field">
@@ -3640,7 +3640,7 @@
               <div class="calc-hint">SLA × 86400</div>
             </div>
             <div class="form-field">
-              <label>Tiempos de Aceptación (HH:MM)</label>
+              <label>Tiempos de Aceptación (HH:MM) *</label>
               <input type="text" id="c_tiempos_aceptacion" placeholder="01:00">
             </div>
             <div class="form-field calc-field" style="display:none;">
@@ -3654,9 +3654,9 @@
         <div class="caso-form-section">
           <div class="caso-section-title">Validaciones (cálculo automático)</div>
           <div class="form-grid">
-            <div class="form-field"><label>Solicitud | Validación-Movistar</label><input type="datetime-local" id="c_s_validacion"></div>
+            <div class="form-field"><label>Solicitud | Validación-Movistar *</label><input type="datetime-local" id="c_s_validacion"></div>
             <div class="form-field calc-field">
-              <label>Fecha Validación Movistar</label>
+              <label>Fecha Validación Movistar *</label>
               <input type="datetime-local" id="c_up_enlace">
               <div class="calc-hint">Por defecto, igual a Resolución. Editable manualmente.</div>
             </div>
@@ -3682,7 +3682,7 @@
           </div>
           <div class="form-grid">
             <div class="form-field full">
-              <label>Observación</label>
+              <label>Observación *</label>
               <textarea id="c_observacion" rows="2" placeholder="Observaciones..."></textarea>
             </div>
           </div>
