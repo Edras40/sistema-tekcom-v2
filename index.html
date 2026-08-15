@@ -1054,6 +1054,12 @@
           </div>
           <input type="hidden" id="eudp_numero">
           <div class="form-field full">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+              <input type="checkbox" id="eudp_sin_id" style="width:16px; height:16px; cursor:pointer; accent-color:var(--accent);">
+              Es un corte sin escuela asignada (no tiene ID)
+            </label>
+          </div>
+          <div class="form-field full" id="eudp_escuela_campo">
             <label>ID Escuela *</label>
             <div class="site-search-row">
               <div class="filter-input" style="max-width:none;">
@@ -1077,7 +1083,7 @@
             </div>
           </div>
           <div class="form-field" style="min-width:0;">
-            <label>Descripción</label>
+            <label id="eudp_descripcion_label">Descripción</label>
             <input type="text" id="eudp_descripcion" readonly style="min-width:0;">
           </div>
           <div class="form-field full">
@@ -2296,6 +2302,14 @@
       <select class="filter-select" id="actDiaFilter">
         <option value="">Todos los días</option>
       </select>
+      <select class="filter-select" id="actEstatusFilter">
+        <option value="">Todos los estatus</option>
+        <option>Finalizada</option>
+        <option>En Proceso</option>
+        <option>Pausado</option>
+        <option>Pendiente</option>
+        <option>Cancelado</option>
+      </select>
     </div>
     <div style="display:flex; gap:10px; margin-left:auto;">
       <button class="btn btn-excel" id="btnExportarActividades">
@@ -2564,15 +2578,15 @@
         <div class="caso-section-title">Datos generales</div>
         <div class="form-grid">
           <div class="form-field">
-            <label>Cliente / Sitio</label>
+            <label>Cliente / Sitio *</label>
             <input type="text" id="pl_cliente_sitio" placeholder="Ej. CREDOMATIC | TERCEROS OFICINA CALLEJAS">
           </div>
           <div class="form-field">
-            <label>No. Ticket</label>
+            <label>No. Ticket *</label>
             <input type="text" id="pl_no_ticket" placeholder="CASE-2026-06-04561">
           </div>
           <div class="form-field">
-            <label>Tipo de Afectación</label>
+            <label>Tipo de Afectación *</label>
             <select id="pl_tipo_afectacion">
               <option value="Interurbano">Interurbano</option>
               <option value="Degradación">Degradación</option>
@@ -2595,19 +2609,19 @@
             </select>
           </div>
           <div class="form-field">
-            <label>Enlace en Afectación — De</label>
+            <label>Enlace en Afectación — De *</label>
             <input type="text" id="pl_enlace_de" placeholder="Nodo o Celda">
           </div>
           <div class="form-field">
-            <label>Enlace en Afectación — Hacia</label>
+            <label>Enlace en Afectación — Hacia *</label>
             <input type="text" id="pl_enlace_hacia" placeholder="Nodo o Celda">
           </div>
           <div class="form-field">
-            <label>Solicitud de Ticket — Fecha</label>
+            <label>Solicitud de Ticket — Fecha *</label>
             <input type="date" id="pl_ticket_fecha">
           </div>
           <div class="form-field">
-            <label>Solicitud de Ticket — Hora</label>
+            <label>Solicitud de Ticket — Hora *</label>
             <input type="time" id="pl_ticket_hora">
           </div>
           <div class="form-field">
@@ -2615,11 +2629,11 @@
             <select id="pl_operador_telco"><option value="">— Selecciona —</option></select>
           </div>
           <div class="form-field">
-            <label>Operador NOC-Tekcom</label>
+            <label>Operador NOC-Tekcom *</label>
             <select id="pl_operador_tekcom"><option value="">— Selecciona —</option></select>
           </div>
           <div class="form-field">
-            <label>Causa</label>
+            <label>Causa *</label>
             <select id="pl_causa">
               <option value="">—</option>
               <option>Corte de Fibra</option>
@@ -2635,7 +2649,7 @@
             <input type="text" id="pl_coordenadas" placeholder="13.xxxxxx, -89.xxxxxx">
           </div>
           <div class="form-field full">
-            <label>Sub Categoría</label>
+            <label>Sub Categoría *</label>
             <div class="site-search-row">
               <div class="filter-input" style="max-width:none;">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
@@ -2656,7 +2670,7 @@
             </div>
           </div>
           <div class="form-field full">
-            <label>Team Líder</label>
+            <label>Team Líder *</label>
             <div class="site-search-row">
               <div class="filter-input" style="max-width:none;">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
