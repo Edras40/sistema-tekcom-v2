@@ -18,7 +18,7 @@
 const CATALOGOS_REST_URL = `${SUPABASE_URL}/rest/v1/catalogos`;
 
 const CATALOGO_CONFIG = {
-  'estatus_casos': { label: 'Estatus (Casos/Actividades)', selects: ['casoStatusFilter', 'cableStatusFilter', 'act_estatus', 'c_status', 'cb_status'] },
+  'estatus_casos': { label: 'Estatus (Casos/Actividades)', selects: ['casoStatusFilter', 'cableStatusFilter', 'act_estatus', 'actEstatusFilter', 'c_status', 'cb_status'] },
   'causas': { label: 'Causas', selects: ['pl_causa', 'c_causa', 'h_causa', 'u_causa', 'cb_causa'] },
   'zonas_generales': { label: 'Zonas (Central/Occidente/Oriente)', selects: ['plEstatusZona', 'dashCumpZonaFilter', 'cumpZona', 'cb_zona'] },
   'zonas_cuadrilla': { label: 'Zonas de Cuadrilla (filtros)', selects: ['cuadrillaFilter', 'c_zona'] },

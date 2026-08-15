@@ -27,7 +27,7 @@ function plTipoOperadorDeProyecto(proyecto){
   return proyecto === 'casos' ? 'movistar' : proyecto; // se conserva 'movistar' para no perder datos ya guardados
 }
 function plEtiquetaOperadorCliente(modulo){
-  return `Operador ${PL_PROYECTO_CORTO[modulo] || 'Movistar'}`;
+  return `Operador ${PL_PROYECTO_CORTO[modulo] || 'Movistar'} *`;
 }
 function plProyectoActivoEnLista(){
   const tab = document.querySelector('.pl-tab-proyecto.active');
@@ -595,6 +595,41 @@ function plHHMMaISO(fecha, hora){
   return new Date(`${fecha}T${h}:00`).toISOString();
 }
 
+// Todos los campos del encabezado son obligatorios, EXCEPTO Coordenadas.
+// Se usa tanto al crear una plantilla nueva como al editar el encabezado.
+function plValidarCamposObligatoriosEncabezado(){
+  const CAMPOS_TEXTO = [
+    ['pl_cliente_sitio', 'Cliente / Sitio'],
+    ['pl_no_ticket', 'No. Ticket'],
+    ['pl_tipo_afectacion', 'Tipo de Afectación'],
+    ['pl_zona', 'Zona'],
+    ['pl_enlace_de', 'Enlace en Afectación — De'],
+    ['pl_enlace_hacia', 'Enlace en Afectación — Hacia'],
+    ['pl_ticket_fecha', 'Solicitud de Ticket — Fecha'],
+    ['pl_ticket_hora', 'Solicitud de Ticket — Hora'],
+    ['pl_operador_telco', 'Operador Movistar'],
+    ['pl_operador_tekcom', 'Operador NOC-Tekcom'],
+    ['pl_causa', 'Causa'],
+  ];
+  for(const [id, etiqueta] of CAMPOS_TEXTO){
+    const el = document.getElementById(id);
+    if(!el || !el.value || !el.value.trim()){
+      showToast(`El campo "${etiqueta}" es obligatorio`, 'error');
+      el?.focus();
+      return false;
+    }
+  }
+  if(!document.getElementById('pl_sub_categoria').value){
+    showToast('Selecciona la Sub Categoría', 'error');
+    return false;
+  }
+  if(document.getElementById('pl_teamlider_name').textContent === '—'){
+    showToast('Selecciona el Team Líder', 'error');
+    return false;
+  }
+  return true;
+}
+
 async function plGuardarEdicionEncabezado(){
   const id = plEditandoEncabezadoId;
   const noTicket = document.getElementById('pl_no_ticket').value.trim();
@@ -607,6 +642,7 @@ async function plGuardarEdicionEncabezado(){
     showToast('Selecciona la Zona (Central, Occidente u Oriente)', 'error');
     return;
   }
+  if(!plValidarCamposObligatoriosEncabezado()) return;
 
   // Las coordenadas terminan en columnas numéricas del caso. Se validan aquí para que
   // el error salga al capturar y no al finalizar la plantilla.
@@ -681,6 +717,7 @@ async function plGuardarYCrearCaso(){
     showToast('Selecciona la Zona (Central, Occidente u Oriente)', 'error');
     return;
   }
+  if(!plValidarCamposObligatoriosEncabezado()) return;
   for(let i = 0; i < plAvances.length - 1; i++){
     if((plAvances[i].estado === 'pausado' || plAvances[i].estado === 'programado')
        && plAvances[i + 1].estado !== 'despausado' && plAvances[i + 1].estado !== plAvances[i].estado){
@@ -1638,7 +1675,7 @@ const PL_ESTATUS_OPCIONES = {
   pendiente_tlf:    { label:'Pendiente Movistar',  bg:'#BDD7EE', color:'#1F4E78' },
   programado:       { label:'Programado',         bg:'#70AD47', color:'#FFFFFF' },
   pendiente_tekcom: { label:'Pendiente Tek Com',   bg:'#C00000', color:'#FFFFFF' },
-  pausado:          { label:'Pausado',            bg:'#FEF3C7', color:'#B45309' },
+  pausado:          { label:'Pausado',            bg:'#FEE2E2', color:'#DC2626' },
 };
 
 // Estatus del tablero en los que el caso NO está siendo trabajado: el SLA se congela
@@ -1708,7 +1745,7 @@ function plCuadrillaDePlantilla(p){
 function plChipEstado(estadoCalc){
   if(estadoCalc === 'finalizado') return '<span class="badge" style="background:#DBEAFE;color:#1D4ED8;">● Finalizado</span>';
   if(estadoCalc === 'escalado') return '<span class="badge" style="background:#FEE2E2;color:#DC2626;">● Escalado</span>';
-  if(estadoCalc === 'pausado') return '<span class="badge" style="background:#FEF3C7;color:#B45309;">● Pausado</span>';
+  if(estadoCalc === 'pausado') return '<span class="badge" style="background:#FEE2E2;color:#DC2626;">● Pausado</span>';
   return '<span class="badge" style="background:#FEF3C7;color:#92400E;">● En Proceso</span>';
 }
 
@@ -1829,7 +1866,7 @@ function plRenderListaFiltrada(){
               <td style="font-weight:600; font-size:10.5px;">${escapeHtml(p.no_ticket || '—')}</td>
               <td style="font-size:10.5px;">${escapeHtml(plEtiquetaProyecto(p.modulo))}</td>
               <td style="font-size:10.5px;">${escapeHtml(p.cliente_sitio || '—')}</td>
-              <td style="max-width:340px; font-size:11.5px; color:var(--text-dim); white-space:normal; overflow-wrap:break-word;">${estadoCalc === 'finalizado' ? 'Operativo Nuevamente, verificar tiempos de respuesta.' : (descLarga ? escapeHtml(descLarga) : '—')}</td>
+              <td style="max-width:340px; font-size:11.5px; color:var(--text-dim); white-space:normal; overflow-wrap:break-word;">${estadoCalc === 'finalizado' ? 'Operativo Nuevamente' : (descLarga ? escapeHtml(descLarga) : '—')}</td>
               <td style="font-size:10.5px;">${(estadoCalc === 'pausado' && ultimo && ultimo.estado === 'programado') ? '<span class="badge" style="background:#DCFCE7;color:#166534;">● Programado</span>' : plChipEstado(estadoCalc)}${alertaHtml}${enviadaHtml}${cronometroHtml}${slaHtml}</td>
               <td style="font-size:10.5px;">${tecnicoTxt}</td>
               <td style="text-align:right;">
@@ -5061,9 +5098,23 @@ async function fetchEscuelas(force){
   const wrap = document.getElementById('escuelasTablaWrap');
   if(wrap) wrap.innerHTML = '<div class="material-empty">Cargando...</div>';
   try{
-    const res = await fetch(`${ESCUELAS_REST_URL}?select=*`, { headers: sbHeaders });
-    if(!res.ok) throw new Error(await res.text());
-    allEscuelas = await res.json();
+    // Supabase/PostgREST corta en 1000 filas por defecto. Como el catálogo ya tiene
+    // más de 4700 escuelas, hay que pedirlas por bloques (Range) hasta traerlas todas,
+    // o la lista y la búsqueda se quedan cortas (aunque la base sí tenga el registro).
+    const PAGE_SIZE = 1000;
+    let desde = 0;
+    let todas = [];
+    while(true){
+      const res = await fetch(`${ESCUELAS_REST_URL}?select=*`, {
+        headers: { ...sbHeaders, 'Range': `${desde}-${desde + PAGE_SIZE - 1}` }
+      });
+      if(!res.ok) throw new Error(await res.text());
+      const bloque = await res.json();
+      todas = todas.concat(bloque);
+      if(bloque.length < PAGE_SIZE) break; // ya no hay más filas
+      desde += PAGE_SIZE;
+    }
+    allEscuelas = todas;
     // Orden numérico por ID (10002, 10003, 10004...), no alfabético por nombre.
     allEscuelas.sort((a, b) => (parseInt(b.id_escuela, 10) || 0) - (parseInt(a.id_escuela, 10) || 0));
     escuelasLoaded = true;

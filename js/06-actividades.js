@@ -92,6 +92,7 @@ function getActividadesFiltradas(){
   const ano = document.getElementById('actAnoFilter').value;
   const mes = document.getElementById('actMesFilter').value;
   const dia = document.getElementById('actDiaFilter').value;
+  const estatus = document.getElementById('actEstatusFilter').value;
 
   return allActividades.filter(a => {
     const matchesSearch = !searchTerm || [a.proyecto, a.actividad, a.folio, a.lider_cuadrilla, a.observacion]
@@ -100,7 +101,8 @@ function getActividadesFiltradas(){
     const matchesAno = !ano || String(a.anio) === ano;
     const matchesMes = !mes || a.mes === mes;
     const matchesDia = !dia || String(a.dia) === dia;
-    return matchesSearch && matchesProyecto && matchesAno && matchesMes && matchesDia;
+    const matchesEstatus = !estatus || a.estatus === estatus;
+    return matchesSearch && matchesProyecto && matchesAno && matchesMes && matchesDia && matchesEstatus;
   });
 }
 
@@ -233,6 +235,7 @@ document.getElementById('actProyectoFilter').addEventListener('change', renderAc
 document.getElementById('actAnoFilter').addEventListener('change', () => { populateActividadFiltros(); renderActividadesTable(); });
 document.getElementById('actMesFilter').addEventListener('change', () => { populateActividadFiltros(); renderActividadesTable(); });
 document.getElementById('actDiaFilter').addEventListener('change', renderActividadesTable);
+document.getElementById('actEstatusFilter').addEventListener('change', renderActividadesTable);
 
 /* ---- Sub-tabs dentro de Actividades Diarias: Listado / Dashboard ---- */
 document.querySelectorAll('[data-subtab-a]').forEach(btn => {

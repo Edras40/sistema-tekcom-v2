@@ -278,6 +278,28 @@ eudpResultados?.addEventListener('click', (e) => {
 
 document.getElementById('eudp_escuela_clear')?.addEventListener('click', () => eudpSetEscuela(null));
 
+// Alterna entre "elegir escuela del catálogo" (lo normal) y "corte sin escuela
+// asignada" (algunos cortes no tienen ID de escuela: se escribe el nombre a mano).
+function eudpAplicarModoSinId(activo){
+  const campoEscuela = document.getElementById('eudp_escuela_campo');
+  const descripcion = document.getElementById('eudp_descripcion');
+  const descripcionLabel = document.getElementById('eudp_descripcion_label');
+  if(activo){
+    eudpSetEscuela(null);
+    campoEscuela.style.display = 'none';
+    descripcion.readOnly = false;
+    descripcion.placeholder = 'Escribe el nombre del corte...';
+    descripcionLabel.textContent = 'Descripción del corte *';
+  } else {
+    campoEscuela.style.display = '';
+    descripcion.readOnly = true;
+    descripcion.placeholder = '';
+    descripcion.value = '';
+    descripcionLabel.textContent = 'Descripción';
+  }
+}
+document.getElementById('eudp_sin_id')?.addEventListener('change', (e) => eudpAplicarModoSinId(e.target.checked));
+
 function abrirEstatusUdpModal(registroId){
   if(!allEscuelas.length){
     plMostrarErrorCentro('Primero registra escuelas en la pestaña "ID Escuelas UDP".');
@@ -294,10 +316,16 @@ function abrirEstatusUdpModal(registroId){
   const siguienteNo = r ? r.numero : (estatusUdpLista.reduce((max, x) => Math.max(max, Number(x.numero) || 0), 0) + 1);
   document.getElementById('eudp_numero').value = siguienteNo ?? '';
   const escSel = r ? allEscuelas.find(e => String(e.id_escuela) === String(r.id_escuela)) : null;
-  eudpSetEscuela(escSel);
+  const esCorteSinId = !!(r && !r.id_escuela);
+  document.getElementById('eudp_sin_id').checked = esCorteSinId;
+  eudpAplicarModoSinId(esCorteSinId);
+  if(!esCorteSinId) eudpSetEscuela(escSel);
   // Si el registro apunta a una escuela borrada del catálogo, se conserva lo guardado.
-  if(r && !escSel){
+  if(r && !escSel && !esCorteSinId){
     document.getElementById('eudp_id_escuela').value = r.id_escuela || '';
+    document.getElementById('eudp_descripcion').value = r.descripcion || '';
+  }
+  if(esCorteSinId){
     document.getElementById('eudp_descripcion').value = r.descripcion || '';
   }
   const personalLista = (typeof allPeople !== 'undefined' && Array.isArray(allPeople)) ? allPeople : [];
@@ -322,16 +350,22 @@ function cerrarEstatusUdpModal(){
 
 async function guardarEstatusUdp(){
   const fecha = document.getElementById('eudp_fecha').value;
+  const sinId = document.getElementById('eudp_sin_id').checked;
   const idEscuela = document.getElementById('eudp_id_escuela').value;
+  const descripcionVal = document.getElementById('eudp_descripcion').value.trim();
   if(!fecha){ showToast('Indica la fecha', 'error'); return; }
-  if(!idEscuela){ showToast('Elige el ID de la escuela', 'error'); return; }
+  if(sinId){
+    if(!descripcionVal){ showToast('Escribe la descripción del corte', 'error'); return; }
+  } else {
+    if(!idEscuela){ showToast('Elige el ID de la escuela', 'error'); return; }
+  }
 
   const numeroTxt = document.getElementById('eudp_numero').value.trim();
   const payload = {
     fecha,
     numero: numeroTxt === '' ? null : parseInt(numeroTxt, 10),
-    id_escuela: idEscuela,
-    descripcion: document.getElementById('eudp_descripcion').value.trim() || null,
+    id_escuela: sinId ? null : idEscuela,
+    descripcion: descripcionVal || null,
     responsable: document.getElementById('eudp_responsable').value || null,
     en_ruta: document.getElementById('eudp_en_ruta').value || null,
     en_sitio: document.getElementById('eudp_en_sitio').value || null,
