@@ -123,15 +123,25 @@ function bloqueoTrRenderLista(vencidos){
       if(!v) return;
       const navItem = document.querySelector(`.nav-item[data-view="${v.modulo.dataView}"]`);
       if(navItem) navItem.click();
+      document.getElementById('bloqueoTrOverlay')?.remove();
       setTimeout(() => v.modulo.abrir(v.caso), 80);
     });
   });
 }
 
+// Si el operador ya está adentro llenando el formulario de un caso (Movistar/Hyve/
+// Cable Color), el overlay se hace a un lado para no taparle la pantalla mientras
+// trabaja. En cuanto cierra ese formulario (guarda o cancela), el chequeo de los
+// 15s lo vuelve a mostrar si todavía hace falta.
+function bloqueoTrHayFormularioCasoAbierto(){
+  return ['casoFormModalOverlay', 'hyveFormModalOverlay', 'cableFormModalOverlay']
+    .some(id => document.getElementById(id)?.classList.contains('active'));
+}
+
 function bloqueoTrEvaluar(){
   const vencidos = bloqueoTrCasosVencidos();
   const overlay = document.getElementById('bloqueoTrOverlay');
-  if(vencidos.length === 0){
+  if(vencidos.length === 0 || bloqueoTrHayFormularioCasoAbierto()){
     if(overlay) overlay.remove();
     return;
   }
@@ -172,5 +182,8 @@ function bloqueoTrDetener(){
 document.addEventListener('click', (e) => {
   if(e.target.closest('#casoFormSaveBtn, #hyveFormSaveBtn, #cableFormSaveBtn')){
     setTimeout(bloqueoTrEvaluar, 600);
+  }
+  if(e.target.closest('#casoFormModalClose, #casoFormModalCancel, #hyveFormModalClose, #hyveFormModalCancel, #cableFormModalClose, #cableFormModalCancel')){
+    setTimeout(bloqueoTrEvaluar, 200);
   }
 });

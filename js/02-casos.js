@@ -763,6 +763,45 @@ document.getElementById('casoFormSaveBtn').addEventListener('click', async () =>
   const tecnicoPersona = tecnicoId ? allPeople.find(p => String(p.id) === String(tecnicoId)) : null;
   const nombreTecnico = tecnicoPersona ? tecnicoPersona.nombre : (document.getElementById('c_tecnico_name').textContent !== '—' ? document.getElementById('c_tecnico_name').textContent : null);
 
+  // Todos los campos son obligatorios excepto: Solicitud de Validación Hyve,
+  // Fecha de Validación Hyve y Coordenadas (esos 3 sí pueden quedar vacíos).
+  const CASO_CAMPOS_OBLIGATORIOS = [
+    ['c_clasificacion', 'Clasificación'],
+    ['c_red', 'Red'],
+    ['c_casos', 'Casos'],
+    ['c_folio', 'Folio'],
+    ['c_status', 'Status'],
+    ['c_zona', 'Cuadrilla'],
+    ['c_departamento', 'Departamento'],
+    ['c_municipio', 'Municipio'],
+    ['c_distrito', 'Distrito'],
+    ['c_causa', 'Causa'],
+    ['c_sub_categoria', 'Sub Categoría'],
+    ['c_semana', 'Semana'],
+    ['c_anos', 'Año'],
+    ['c_mes', 'Mes'],
+    ['c_dia', 'Día'],
+    ['c_escalonamiento', 'Escalonamiento'],
+    ['c_resolucion', 'Resolución'],
+    ['c_sla', 'SLA'],
+    ['c_tiempos_aceptacion', 'Tiempos de Aceptación'],
+    ['c_s_validacion', 'Solicitud | Validación-Movistar'],
+    ['c_up_enlace', 'Fecha Validación Movistar'],
+    ['c_observacion', 'Observación'],
+  ];
+  if(!nombreTecnico){
+    showToast('Selecciona el Nombre del Técnico', 'error');
+    return;
+  }
+  for(const [id, etiqueta] of CASO_CAMPOS_OBLIGATORIOS){
+    const el = document.getElementById(id);
+    if(!el || !el.value || !el.value.trim()){
+      showToast(`El campo "${etiqueta}" es obligatorio`, 'error');
+      el?.focus();
+      return;
+    }
+  }
+
   const toNumOrNull = (id) => {
     const v = document.getElementById(id).value.trim();
     return v === '' ? null : parseFloat(v);
@@ -904,13 +943,14 @@ function openCasoViewModal(caso){
 
   const matWrap = document.getElementById('casoViewMateriales');
   const materialesUsados = MATERIALES_CATALOGO.filter(([label,col]) => caso[col] && Number(caso[col]) > 0);
+  const COLUMNAS_SIN_CANTIDAD = ['no_se_utilizaron_materiales', 'no_comparto_materiales'];
   if(materialesUsados.length === 0){
     matWrap.innerHTML = '<div class="material-empty">No se registraron materiales en este caso.</div>';
   } else {
     matWrap.innerHTML = materialesUsados.map(([label,col]) => `
       <div class="material-item">
         <div class="material-item-name">${escapeHtml(label)}</div>
-        <div class="mono" style="font-weight:600;">${escapeHtml(caso[col])}</div>
+        ${COLUMNAS_SIN_CANTIDAD.includes(col) ? '' : `<div class="mono" style="font-weight:600;">${escapeHtml(caso[col])}</div>`}
       </div>
     `).join('');
   }
