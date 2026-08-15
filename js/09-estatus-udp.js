@@ -339,6 +339,9 @@ function abrirEstatusUdpModal(registroId){
   document.getElementById('eudp_inicio_labores').value = r?.inicio_labores ? isoToDatetimeLocal(r.inicio_labores) : '';
   document.getElementById('eudp_fin_labores').value = r?.fin_labores ? isoToDatetimeLocal(r.fin_labores) : '';
   document.getElementById('eudp_avance').value = r?.avance || '';
+  eudpCargarMateriales(r?.materiales);
+  if(eudpMaterialSearch) eudpMaterialSearch.value = '';
+  eudpActualizarVisibilidadMateriales();
 
   document.getElementById('estatusUdpModalOverlay').classList.add('active');
 }
@@ -347,6 +350,114 @@ function cerrarEstatusUdpModal(){
   document.getElementById('estatusUdpModalOverlay').classList.remove('active');
   editandoEstatusUdpId = null;
 }
+
+/* ---- Materiales utilizados: solo se pide/muestra cuando Estatus = Finalizado ---- */
+let eudpMaterialesActuales = [];
+
+function eudpCargarMateriales(materialesGuardados){
+  eudpMaterialesActuales = [];
+  const datos = materialesGuardados || {};
+  UDP_MATERIALES_CATALOGO.forEach(([label, col]) => {
+    if(datos[col] > 0){
+      eudpMaterialesActuales.push({ label, col, cantidad: datos[col] });
+    }
+  });
+  eudpRenderMaterialList();
+}
+
+function eudpRenderMaterialList(){
+  const wrap = document.getElementById('eudp_material_list');
+  if(!wrap) return;
+  if(eudpMaterialesActuales.length === 0){
+    wrap.innerHTML = '<div class="material-empty">Aún no se han agregado materiales.</div>';
+    return;
+  }
+  wrap.innerHTML = eudpMaterialesActuales.map((m, i) => `
+    <div class="material-item">
+      <div class="material-item-name">${escapeHtml(m.label)}</div>
+      <input type="number" min="0" step="1" value="${m.cantidad}" data-eudp-mat-index="${i}" class="mat-qty-input">
+      <button type="button" class="material-item-remove" data-eudp-mat-remove="${i}" title="Quitar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+    </div>
+  `).join('');
+
+  wrap.querySelectorAll('.mat-qty-input').forEach(inp => {
+    inp.addEventListener('input', () => {
+      const idx = parseInt(inp.dataset.eudpMatIndex, 10);
+      eudpMaterialesActuales[idx].cantidad = parseFloat(inp.value) || 0;
+    });
+  });
+  wrap.querySelectorAll('[data-eudp-mat-remove]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      eudpMaterialesActuales.splice(parseInt(btn.dataset.eudpMatRemove, 10), 1);
+      eudpRenderMaterialList();
+    });
+  });
+}
+
+function eudpAgregarMaterial(col){
+  if(eudpMaterialesActuales.find(m => m.col === col)){
+    showToast('Ese material ya está en la lista', 'error');
+    return;
+  }
+  const entry = UDP_MATERIALES_CATALOGO.find(([label, c]) => c === col);
+  if(!entry) return;
+  eudpMaterialesActuales.push({ label: entry[0], col, cantidad: 1 });
+  eudpRenderMaterialList();
+}
+
+function eudpLeerMaterialesForm(){
+  const materiales = {};
+  eudpMaterialesActuales.forEach(m => {
+    if(m.cantidad > 0) materiales[m.col] = m.cantidad;
+  });
+  return materiales;
+}
+
+function eudpActualizarVisibilidadMateriales(){
+  const wrap = document.getElementById('eudpMaterialesFinalizarWrap');
+  if(!wrap) return;
+  wrap.style.display = document.getElementById('eudp_estatus').value === 'Finalizado' ? '' : 'none';
+}
+document.getElementById('eudp_estatus')?.addEventListener('change', eudpActualizarVisibilidadMateriales);
+
+const eudpMaterialSearch = document.getElementById('eudp_material_search');
+const eudpMaterialResults = document.getElementById('eudp_material_results');
+eudpMaterialSearch?.addEventListener('input', () => {
+  const term = eudpMaterialSearch.value.trim().toLowerCase();
+  if(!term){ eudpMaterialResults.classList.remove('show'); eudpMaterialResults.innerHTML = ''; return; }
+
+  const yaAgregados = new Set(eudpMaterialesActuales.map(m => m.col));
+  const matches = UDP_MATERIALES_CATALOGO.filter(([label, col]) =>
+    !yaAgregados.has(col) && label.toLowerCase().includes(term)
+  ).slice(0, 20);
+
+  if(matches.length === 0){
+    eudpMaterialResults.innerHTML = '<div class="site-result-empty">Sin resultados</div>';
+  } else {
+    eudpMaterialResults.innerHTML = matches.map(([label, col]) => `
+      <div class="site-result-item" data-eudp-material-col="${escapeHtml(col)}">
+        <div class="site-result-name">${escapeHtml(label)}</div>
+      </div>
+    `).join('');
+  }
+  eudpMaterialResults.classList.add('show');
+});
+eudpMaterialResults?.addEventListener('click', (e) => {
+  const item = e.target.closest('[data-eudp-material-col]');
+  if(!item) return;
+  eudpAgregarMaterial(item.dataset.eudpMaterialCol);
+  eudpMaterialSearch.value = '';
+  eudpMaterialResults.classList.remove('show');
+  eudpMaterialResults.innerHTML = '';
+  eudpMaterialSearch.focus();
+});
+document.addEventListener('click', (e) => {
+  if(!e.target.closest('#eudp_material_search') && !e.target.closest('#eudp_material_results')){
+    eudpMaterialResults?.classList.remove('show');
+  }
+});
 
 async function guardarEstatusUdp(){
   const fecha = document.getElementById('eudp_fecha').value;
@@ -373,6 +484,7 @@ async function guardarEstatusUdp(){
     fin_labores: toIsoLocal('eudp_fin_labores'),
     avance: document.getElementById('eudp_avance').value.trim() || null,
     estatus: document.getElementById('eudp_estatus').value,
+    materiales: document.getElementById('eudp_estatus').value === 'Finalizado' ? eudpLeerMaterialesForm() : null,
   };
 
   if(payload.inicio_labores && payload.fin_labores &&
@@ -448,10 +560,21 @@ async function crearCasoUdpDesdeEstatus(r){
       status: 'En Proceso', // el operador completa el resto y lo cierra
     };
 
+    // Los materiales cargados en el modal (si se llenaron al Finalizar) se
+    // vuelcan igual que en el formulario propio de Casos UDP.
+    const materialesMap = r.materiales || {};
+    UDP_MATERIALES_CATALOGO.forEach(([label, col]) => {
+      payload[col] = materialesMap.hasOwnProperty(col) ? materialesMap[col] : 0;
+    });
+
+    console.log('[DEBUG crearCasoUdpDesdeEstatus] registro de estatus:', r);
+    console.log('[DEBUG crearCasoUdpDesdeEstatus] payload a enviar:', payload);
+
     // Evita duplicar si esa asignación ya generó su caso.
     let existenteId = null;
     if(r.caso_id){
       existenteId = r.caso_id;
+      console.log('[DEBUG crearCasoUdpDesdeEstatus] ya existe caso_id, se actualiza:', existenteId);
     }
 
     const url = existenteId ? `${UDP_REST_URL}?id=eq.${existenteId}` : UDP_REST_URL;
@@ -460,16 +583,25 @@ async function crearCasoUdpDesdeEstatus(r){
       headers: { ...sbHeaders, 'Prefer':'return=representation' },
       body: JSON.stringify(payload)
     });
-    if(!res.ok) throw new Error(await res.text());
+    console.log('[DEBUG crearCasoUdpDesdeEstatus] respuesta HTTP status:', res.status, res.statusText);
+    if(!res.ok){
+      const textoError = await res.text();
+      console.error('[DEBUG crearCasoUdpDesdeEstatus] ERROR de Supabase:', textoError);
+      throw new Error(textoError);
+    }
 
     const creado = (await res.json())[0];
+    console.log('[DEBUG crearCasoUdpDesdeEstatus] caso creado/actualizado en casos_udp:', creado);
     if(creado && r.id && !r.caso_id){
       await fetch(`${ESTATUS_UDP_REST_URL}?id=eq.${r.id}`, {
         method:'PATCH', headers: sbHeaders,
         body: JSON.stringify({ caso_id: creado.id })
       });
     }
+    if(typeof udpLoaded !== 'undefined') udpLoaded = false;
+    if(typeof fetchUdp === 'function') await fetchUdp();
   }catch(err){
+    console.error('[DEBUG crearCasoUdpDesdeEstatus] excepción capturada:', err);
     plMostrarErrorCentro('La asignación se guardó, pero no se pudo crear el caso en UDP: ' + err.message);
   }
 }
